@@ -49,10 +49,12 @@ class CommitmentDetailScreen extends ConsumerStatefulWidget {
   final bool justLocked;
 
   @override
-  ConsumerState<CommitmentDetailScreen> createState() => _CommitmentDetailScreenState();
+  ConsumerState<CommitmentDetailScreen> createState() =>
+      _CommitmentDetailScreenState();
 }
 
-class _CommitmentDetailScreenState extends ConsumerState<CommitmentDetailScreen> {
+class _CommitmentDetailScreenState
+    extends ConsumerState<CommitmentDetailScreen> {
   String? _selectedDate;
   bool _busy = false;
   String _actionError = '';
@@ -64,7 +66,11 @@ class _CommitmentDetailScreenState extends ConsumerState<CommitmentDetailScreen>
     _selectedDate = d != null && isValidDate(d) ? d : null;
   }
 
-  Future<void> _action(Commitment c, {required bool pause, VoidCallback? onDone}) async {
+  Future<void> _action(
+    Commitment c, {
+    required bool pause,
+    VoidCallback? onDone,
+  }) async {
     if (_busy) return;
     setState(() {
       _busy = true;
@@ -76,8 +82,11 @@ class _CommitmentDetailScreenState extends ConsumerState<CommitmentDetailScreen>
       onDone?.call();
     } catch (e) {
       if (mounted) {
-        setState(() => _actionError =
-            e is LockInException ? e.message : 'Could not save this change. Please retry.');
+        setState(
+          () => _actionError = e is LockInException
+              ? e.message
+              : 'Could not save this change. Please retry.',
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -88,7 +97,8 @@ class _CommitmentDetailScreenState extends ConsumerState<CommitmentDetailScreen>
     _actionError = '';
     await showAppModal<void>(
       context,
-      builder: (_) => _PauseModal(commitment: c, onConfirm: () => _pauseFromModal(c)),
+      builder: (_) =>
+          _PauseModal(commitment: c, onConfirm: () => _pauseFromModal(c)),
     );
   }
 
@@ -98,19 +108,25 @@ class _CommitmentDetailScreenState extends ConsumerState<CommitmentDetailScreen>
       await ref.read(commitmentsProvider.notifier).pause(c);
       return null;
     } catch (e) {
-      return e is LockInException ? e.message : 'Could not save this change. Please retry.';
+      return e is LockInException
+          ? e.message
+          : 'Could not save this change. Please retry.';
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final data = ref.watch(commitmentsProvider);
-    final c = data.snapshot.commitments.where((x) => x.id == widget.id).firstOrNull;
+    final c = data.snapshot.commitments
+        .where((x) => x.id == widget.id)
+        .firstOrNull;
 
     if (data.loading) {
       return const AppScreen(
         mainAxisAlignment: MainAxisAlignment.center,
-        children: [Center(child: CircularProgressIndicator(color: AppColors.inkPrimary))],
+        children: [
+          Center(child: CircularProgressIndicator(color: AppColors.inkPrimary)),
+        ],
       );
     }
     if (c == null) {
@@ -149,7 +165,10 @@ class _CommitmentDetailScreenState extends ConsumerState<CommitmentDetailScreen>
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       children: [
         if (data.error != null)
-          Notice(data.error!, onRetry: () => ref.read(commitmentsProvider.notifier).refresh()),
+          Notice(
+            data.error!,
+            onRetry: () => ref.read(commitmentsProvider.notifier).refresh(),
+          ),
         LockSettle(
           enabled: widget.justLocked,
           child: Column(
@@ -184,12 +203,19 @@ class _CommitmentDetailScreenState extends ConsumerState<CommitmentDetailScreen>
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.inkFocus,
                         borderRadius: BorderRadius.circular(24),
                       ),
-                      child: Label(paceLabel(c.pace), size: 12, color: AppColors.onDark),
+                      child: Label(
+                        paceLabel(c.pace),
+                        size: 12,
+                        color: AppColors.onDark,
+                      ),
                     ),
                   ),
                   Padding(
@@ -210,13 +236,21 @@ class _CommitmentDetailScreenState extends ConsumerState<CommitmentDetailScreen>
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Label(paused ? 'Original end' : 'End Date', size: 11, muted: true),
+                            Label(
+                              paused ? 'Original end' : 'End Date',
+                              size: 11,
+                              muted: true,
+                            ),
                             Padding(
                               padding: const EdgeInsets.only(top: 4),
                               child: Label(
                                 formatDate(
                                   paused
-                                      ? computeEndDate(c.startDate, c.duration, const [])
+                                      ? computeEndDate(
+                                          c.startDate,
+                                          c.duration,
+                                          const [],
+                                        )
                                       : endDate(c),
                                 ),
                                 size: 12,
@@ -245,7 +279,8 @@ class _CommitmentDetailScreenState extends ConsumerState<CommitmentDetailScreen>
                         muted: true,
                       ),
                     ),
-                  if (c.status == CommitmentStatus.active && today.compareTo(endDate(c)) > 0)
+                  if (c.status == CommitmentStatus.active &&
+                      today.compareTo(endDate(c)) > 0)
                     const Padding(
                       padding: EdgeInsets.only(top: 16),
                       child: Label(
@@ -300,7 +335,8 @@ class _CommitmentDetailScreenState extends ConsumerState<CommitmentDetailScreen>
                       light: true,
                       title: log != null ? 'UPDATE CHECK-IN' : 'LOG PROGRESS',
                       icon: Feather.checkSquare,
-                      onPressed: () => showLogModal(context, LogSelection(c, date)),
+                      onPressed: () =>
+                          showLogModal(context, LogSelection(c, date)),
                     ),
                 ],
               ),
@@ -324,7 +360,9 @@ class _CommitmentDetailScreenState extends ConsumerState<CommitmentDetailScreen>
                         value: c.status,
                         settle: true,
                         child: AppIcon(
-                          c.status == CommitmentStatus.completed ? Feather.award : Feather.gift,
+                          c.status == CommitmentStatus.completed
+                              ? Feather.award
+                              : Feather.gift,
                           size: 64,
                           color: c.status == CommitmentStatus.completed
                               ? AppColors.successForeground
@@ -377,8 +415,8 @@ class _CommitmentDetailScreenState extends ConsumerState<CommitmentDetailScreen>
                     c.reflection!.reason.isNotEmpty
                         ? c.reflection!.reason
                         : c.reflection!.note.isNotEmpty
-                            ? c.reflection!.note
-                            : 'You chose to start fresh without a note.',
+                        ? c.reflection!.note
+                        : 'You chose to start fresh without a note.',
                   ),
                 ),
               ],
@@ -393,7 +431,11 @@ class _CommitmentDetailScreenState extends ConsumerState<CommitmentDetailScreen>
                 for (final e in c.events)
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
-                    child: Label('${e.type.name} · ${formatDate(e.date)}', size: 12, capitalize: true),
+                    child: Label(
+                      '${e.type.name} · ${formatDate(e.date)}',
+                      size: 12,
+                      capitalize: true,
+                    ),
                   ),
               ],
             ),
@@ -406,7 +448,9 @@ class _CommitmentDetailScreenState extends ConsumerState<CommitmentDetailScreen>
               final previous = data.snapshot.commitments
                   .where((x) => x.attemptId == c.previousAttemptId)
                   .firstOrNull;
-              context.push('/commitment/${previous?.id ?? c.previousAttemptId}');
+              context.push(
+                '/commitment/${previous?.id ?? c.previousAttemptId}',
+              );
             },
           ),
         // ---- Lifecycle action ----------------------------------------------------
@@ -479,22 +523,22 @@ class _PauseModalState extends State<_PauseModal> {
 
   @override
   Widget build(BuildContext context) => ModalCard(
-        title: 'Pause your commitment?',
-        busy: _busy,
-        children: [
-          const Label(
-            'Pause from tomorrow; today’s target still counts. Earlier check-ins keep their '
-            'catch-up deadlines. Reminders stop now, and your deadline extends by paused days '
-            'when you resume.',
-          ),
-          if (_error.isNotEmpty) ErrorNote(_error),
-          LockButton(title: 'CONFIRM PAUSE', onPressed: _confirm, loading: _busy),
-          LockButton(
-            light: true,
-            title: 'KEEP GOING',
-            disabled: _busy,
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-        ],
-      );
+    title: 'Pause your commitment?',
+    busy: _busy,
+    children: [
+      const Label(
+        'Pause from tomorrow; today’s target still counts. Earlier check-ins keep their '
+        'catch-up deadlines. Reminders stop now, and your deadline extends by paused days '
+        'when you resume.',
+      ),
+      if (_error.isNotEmpty) ErrorNote(_error),
+      LockButton(title: 'CONFIRM PAUSE', onPressed: _confirm, loading: _busy),
+      LockButton(
+        light: true,
+        title: 'KEEP GOING',
+        disabled: _busy,
+        onPressed: () => Navigator.of(context).pop(),
+      ),
+    ],
+  );
 }

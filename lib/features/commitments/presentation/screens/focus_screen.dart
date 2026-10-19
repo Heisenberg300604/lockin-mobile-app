@@ -59,7 +59,10 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
     // "Current" = still in play: completed attempts live in History, and an
     // attempt that was restarted is superseded by its replacement.
     final current = data.snapshot.commitments
-        .where((c) => c.status != CommitmentStatus.completed && c.restartedBy == null)
+        .where(
+          (c) =>
+              c.status != CommitmentStatus.completed && c.restartedBy == null,
+        )
         .toList();
     final filtered = current
         .where((c) => _filter == _Filter.all || c.status.name == _filter.name)
@@ -84,7 +87,10 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           if (data.error != null)
-            Notice(data.error!, onRetry: () => ref.read(commitmentsProvider.notifier).refresh()),
+            Notice(
+              data.error!,
+              onRetry: () => ref.read(commitmentsProvider.notifier).refresh(),
+            ),
           SizedBox(
             width: 64,
             child: LockButton(
@@ -110,15 +116,18 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
     final greeting = now.hour < 12
         ? 'Morning'
         : now.hour < 17
-            ? 'Afternoon'
-            : 'Evening';
+        ? 'Afternoon'
+        : 'Evening';
 
     return AppScreen(
       header: const AppHeader(),
       gap: 24,
       children: [
         if (data.error != null)
-          Notice(data.error!, onRetry: () => ref.read(commitmentsProvider.notifier).refresh()),
+          Notice(
+            data.error!,
+            onRetry: () => ref.read(commitmentsProvider.notifier).refresh(),
+          ),
         // ---- Greeting card -------------------------------------------------
         AppCard(
           color: AppColors.surfaceHero,
@@ -137,7 +146,9 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
                       children: [
                         Label('☼ Good $greeting,', size: 10),
                         Label(
-                          (identity?.name.isNotEmpty ?? false) ? identity!.name : 'Your next chapter',
+                          (identity?.name.isNotEmpty ?? false)
+                              ? identity!.name
+                              : 'Your next chapter',
                           size: 16,
                           bold: true,
                         ),
@@ -147,7 +158,9 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
                   _WeekStrip(monday: monday, today: today),
                 ],
               ),
-              _NewCommitmentButton(onTap: () => context.push('/commitment/new')),
+              _NewCommitmentButton(
+                onTap: () => context.push('/commitment/new'),
+              ),
             ],
           ),
         ),
@@ -156,7 +169,10 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           spacing: 12,
           children: [
-            SectionHeader(title: "Today's Tracking", onViewAll: () => context.push('/tracking')),
+            SectionHeader(
+              title: "Today's Tracking",
+              onViewAll: () => context.push('/tracking'),
+            ),
             if (rows.isNotEmpty)
               for (final row in rows.take(4))
                 TrackingRow(
@@ -164,7 +180,10 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
                   commitment: row.commitment,
                   date: row.date,
                   catchUp: row.catchUp,
-                  onPressed: () => showLogModal(context, LogSelection(row.commitment, row.date)),
+                  onPressed: () => showLogModal(
+                    context,
+                    LogSelection(row.commitment, row.date),
+                  ),
                 )
             else
               const Label('No commitments due today.', size: 13, muted: true),
@@ -205,8 +224,12 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
                 spacing: 16,
                 children: [
                   SectionHeader(
-                    title: path == HabitPath.build ? 'Building Habits' : 'Quitting Habits',
-                    onViewAll: () => context.push('/commitments?path=${path.name}&status=${_filter.name}'),
+                    title: path == HabitPath.build
+                        ? 'Building Habits'
+                        : 'Quitting Habits',
+                    onViewAll: () => context.push(
+                      '/commitments?path=${path.name}&status=${_filter.name}',
+                    ),
                   ),
                   for (final c in filtered.where((c) => c.path == path).take(3))
                     CommitmentCard(key: ValueKey(c.id), commitment: c),
@@ -226,43 +249,48 @@ class _WeekStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (var i = 0; i < 7; i++)
-            Builder(builder: (context) {
-              final date = addDays(monday, i);
-              final active = date == today;
-              return Tappable(
-                semanticLabel: 'History for $date',
-                onTap: () => context.go('/history?date=$date'),
-                child: SizedBox(
-                  width: 23,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Column(
-                      spacing: 7,
-                      children: [
-                        Label(weekdayNames[i][0], size: 9, muted: true),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: active ? AppColors.inkPrimary : null,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Label(
-                            '${int.parse(date.substring(8))}',
-                            size: 10,
-                            color: active ? AppColors.onDark : AppColors.inkMuted,
-                          ),
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      for (var i = 0; i < 7; i++)
+        Builder(
+          builder: (context) {
+            final date = addDays(monday, i);
+            final active = date == today;
+            return Tappable(
+              semanticLabel: 'History for $date',
+              onTap: () => context.go('/history?date=$date'),
+              child: SizedBox(
+                width: 23,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Column(
+                    spacing: 7,
+                    children: [
+                      Label(weekdayNames[i][0], size: 9, muted: true),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
                         ),
-                      ],
-                    ),
+                        decoration: BoxDecoration(
+                          color: active ? AppColors.inkPrimary : null,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Label(
+                          '${int.parse(date.substring(8))}',
+                          size: 10,
+                          color: active ? AppColors.onDark : AppColors.inkMuted,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              );
-            }),
-        ],
-      );
+              ),
+            );
+          },
+        ),
+    ],
+  );
 }
 
 class _NewCommitmentButton extends StatelessWidget {
@@ -272,42 +300,50 @@ class _NewCommitmentButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Tappable(
-        semanticLabel: 'Lock in new commitment',
-        onTap: onTap,
-        child: RaisedBox(
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.surfacePanel,
-              border: Border.all(color: AppColors.borderStrong),
-            ),
-            child: Row(
-              spacing: 12,
-              children: [
-                Container(
-                  color: AppColors.inkPrimary,
-                  padding: const EdgeInsets.all(10),
-                  child: const AppIcon(Feather.lock, size: 20, color: AppColors.onDark),
-                ),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Label('LOCK-IN NEW\nCOMMITMENT', size: 12, bold: true),
-                      Label('Start a new habit matrix here', size: 10, muted: true),
-                    ],
-                  ),
-                ),
-                const AppIcon(Feather.arrowRight),
-              ],
-            ),
-          ),
+    semanticLabel: 'Lock in new commitment',
+    onTap: onTap,
+    child: RaisedBox(
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.surfacePanel,
+          border: Border.all(color: AppColors.borderStrong),
         ),
-      );
+        child: Row(
+          spacing: 12,
+          children: [
+            Container(
+              color: AppColors.inkPrimary,
+              padding: const EdgeInsets.all(10),
+              child: const AppIcon(
+                Feather.lock,
+                size: 20,
+                color: AppColors.onDark,
+              ),
+            ),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Label('LOCK-IN NEW\nCOMMITMENT', size: 12, bold: true),
+                  Label('Start a new habit matrix here', size: 10, muted: true),
+                ],
+              ),
+            ),
+            const AppIcon(Feather.arrowRight),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class _FilterChip extends StatelessWidget {
-  const _FilterChip({required this.label, required this.selected, required this.onTap});
+  const _FilterChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
 
   final String label;
   final bool selected;
@@ -315,25 +351,29 @@ class _FilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Tappable(
-        semanticLabel: 'Filter $label',
-        selected: selected,
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 9),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: selected ? AppColors.inkFocus : AppColors.surfaceHero,
-            borderRadius: BorderRadius.circular(28),
-            boxShadow: const [
-              BoxShadow(color: Color(0x33251F1A), offset: Offset(0, 2), blurRadius: 2),
-            ],
+    semanticLabel: 'Filter $label',
+    selected: selected,
+    onTap: onTap,
+    child: Container(
+      padding: const EdgeInsets.symmetric(vertical: 9),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: selected ? AppColors.inkFocus : AppColors.surfaceHero,
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x33251F1A),
+            offset: Offset(0, 2),
+            blurRadius: 2,
           ),
-          child: Label(
-            label,
-            size: 12,
-            capitalize: true,
-            color: selected ? AppColors.onDark : AppColors.inkPrimary,
-          ),
-        ),
-      );
+        ],
+      ),
+      child: Label(
+        label,
+        size: 12,
+        capitalize: true,
+        color: selected ? AppColors.onDark : AppColors.inkPrimary,
+      ),
+    ),
+  );
 }

@@ -30,8 +30,9 @@ immediately before every request, sends it in `Authorization: Bearer ...`,
 and uses 65-second connect/send/receive timeouts for Render cold starts. It
 retries once on a timeout, a 5xx response, or a 401 response (which obtains a
 fresh token). NestJS error messages, including validation message arrays, are
-converted to `ApiException`; a second 401 signs the Clerk session out so the
-router returns the person to sign-in.
+converted to `ApiException`. A repeated 401 is shown in the app without
+deleting Clerk's local session: a valid Clerk session can be rejected when the
+backend's Clerk instance or authorized-party configuration is incorrect.
 
 `RemoteCommitmentRepository` is selected by
 `commitmentRepositoryProvider`. It calls `GET /me` first to provision the

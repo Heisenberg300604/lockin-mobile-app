@@ -27,7 +27,10 @@ class TrackingScreen extends ConsumerWidget {
       padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
       children: [
         if (data.error != null)
-          Notice(data.error!, onRetry: () => ref.read(commitmentsProvider.notifier).refresh()),
+          Notice(
+            data.error!,
+            onRetry: () => ref.read(commitmentsProvider.notifier).refresh(),
+          ),
         if (rows.isEmpty) const Label('No commitments due today.'),
         for (final row in rows)
           TrackingRow(
@@ -35,7 +38,8 @@ class TrackingScreen extends ConsumerWidget {
             commitment: row.commitment,
             date: row.date,
             catchUp: row.catchUp,
-            onPressed: () => showLogModal(context, LogSelection(row.commitment, row.date)),
+            onPressed: () =>
+                showLogModal(context, LogSelection(row.commitment, row.date)),
           ),
       ],
     );

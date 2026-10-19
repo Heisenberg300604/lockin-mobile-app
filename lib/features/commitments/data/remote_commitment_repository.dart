@@ -48,6 +48,16 @@ class RemoteCommitmentRepository implements CommitmentRepository {
   Future<Commitment> create(Draft draft, String requestId) => _safe(() async {
     final issue = validateDraft(draft);
     if (issue != null) throw LockInException(issue);
+    if (draft.path == HabitPath.quit && draft.pace is! DailyPace) {
+      throw const LockInException(
+        'Quit commitments must use the everyday pace.',
+      );
+    }
+    if (draft.pace case DailyPace(:final count) when count != 1) {
+      throw const LockInException(
+        'The LockIn API supports one daily check-in per commitment.',
+      );
+    }
     final payload = _createPayload(draft, startDate: draft.startDate);
     final data = _jsonObject(await _api.post('/commitments', data: payload));
     return _commitmentFromApi(data);

@@ -69,8 +69,12 @@ class _LogModalBodyState extends ConsumerState<_LogModalBody> {
     // Start the counter from the saved value. Later background refreshes must
     // not overwrite what the user is editing, so this runs only once.
     final data = ref.read(commitmentsProvider);
-    _count = getLog(data.snapshot.checkIns, widget.selection.commitment, widget.selection.date)
-            ?.count ??
+    _count =
+        getLog(
+          data.snapshot.checkIns,
+          widget.selection.commitment,
+          widget.selection.date,
+        )?.count ??
         0;
   }
 
@@ -81,11 +85,17 @@ class _LogModalBodyState extends ConsumerState<_LogModalBody> {
       _error = '';
     });
     try {
-      await ref.read(commitmentsProvider.notifier).log(c, widget.selection.date, value);
+      await ref
+          .read(commitmentsProvider.notifier)
+          .log(c, widget.selection.date, value);
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       if (mounted) {
-        setState(() => _error = e is LockInException ? e.message : 'Your check-in was not saved. Please retry.');
+        setState(
+          () => _error = e is LockInException
+              ? e.message
+              : 'Your check-in was not saved. Please retry.',
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -99,7 +109,9 @@ class _LogModalBodyState extends ConsumerState<_LogModalBody> {
       _error = '';
     });
     try {
-      await ref.read(commitmentsProvider.notifier).fail(c, widget.selection.date);
+      await ref
+          .read(commitmentsProvider.notifier)
+          .fail(c, widget.selection.date);
       if (!mounted) return;
       Navigator.of(context).pop();
       if (c.pace is! WeeklyPace) {
@@ -107,7 +119,11 @@ class _LogModalBodyState extends ConsumerState<_LogModalBody> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _error = e is LockInException ? e.message : 'Your outcome was not saved. Please retry.');
+        setState(
+          () => _error = e is LockInException
+              ? e.message
+              : 'Your outcome was not saved. Please retry.',
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -120,7 +136,8 @@ class _LogModalBodyState extends ConsumerState<_LogModalBody> {
     final date = widget.selection.date;
     // Use the freshest copy of the commitment (it may have changed since the
     // dialog opened), falling back to the one we were given.
-    final c = data.snapshot.commitments
+    final c =
+        data.snapshot.commitments
             .where((x) => x.attemptId == widget.selection.commitment.attemptId)
             .firstOrNull ??
         widget.selection.commitment;
@@ -132,7 +149,7 @@ class _LogModalBodyState extends ConsumerState<_LogModalBody> {
 
     final subtitle = period != null
         ? '${formatDate(date)}\n${period.required} successful days · '
-            '${formatShortDate(period.start)} – ${formatShortDate(period.end)}'
+              '${formatShortDate(period.start)} – ${formatShortDate(period.end)}'
         : '${formatDate(date)}\nEvery single day brings you closer to your reward.';
 
     return ModalCard(
@@ -161,8 +178,17 @@ class _LogModalBodyState extends ConsumerState<_LogModalBody> {
           ),
         ] else ...[
           if (numeric) ...[
-            Counter(value: _count, max: targetForDate(c), onChanged: (v) => setState(() => _count = v)),
-            Label('of ${targetForDate(c)} today', size: 12, muted: true, align: TextAlign.center),
+            Counter(
+              value: _count,
+              max: targetForDate(c),
+              onChanged: (v) => setState(() => _count = v),
+            ),
+            Label(
+              'of ${targetForDate(c)} today',
+              size: 12,
+              muted: true,
+              align: TextAlign.center,
+            ),
             LockButton(
               title: 'Apply Changes',
               onPressed: () => _save(c, _count),
@@ -178,18 +204,22 @@ class _LogModalBodyState extends ConsumerState<_LogModalBody> {
               loading: _busy,
               disabled: !enabled,
             ),
-          LockButton(
-            light: true,
-            title: weekly
-                ? (quit ? "Didn't stay consistent" : 'Not today')
-                : (quit ? 'Broke my Commitment' : 'Missed'),
-            icon: Feather.x,
-            onPressed: () => setState(() => _confirmFailure = true),
-            disabled: !enabled || _busy,
-          ),
+          if (quit)
+            LockButton(
+              light: true,
+              title: weekly ? "Didn't stay consistent" : 'Broke my Commitment',
+              icon: Feather.x,
+              onPressed: () => setState(() => _confirmFailure = true),
+              disabled: !enabled || _busy,
+            ),
         ],
         if (_error.isNotEmpty) ErrorNote(_error),
-        if (!enabled) const Label('Check-ins are available for today only.', size: 12, muted: true),
+        if (!enabled)
+          const Label(
+            'Check-ins are available for today only.',
+            size: 12,
+            muted: true,
+          ),
         const Label(
           'LockIn records one server-verified result for today.',
           size: 11,

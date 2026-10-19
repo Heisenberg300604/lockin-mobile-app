@@ -34,13 +34,52 @@ import '../domain/models.dart';
 final commitmentRepositoryProvider = Provider<CommitmentRepository>((ref) {
   final identity = ref.watch(sessionProvider.select((s) => s.identity));
   if (identity == null) {
-    throw StateError('Commitments were requested while signed out.');
+    // The router may build the outgoing tab shell for one frame while a
+    // sign-out redirect is underway. Returning an inert repository keeps that
+    // transient state from becoming an uncaught provider error.
+    return const _SignedOutCommitmentRepository();
   }
   return RemoteCommitmentRepository(
     api: ref.watch(apiClientProvider),
     auth: () => ref.read(authGatewayProvider.future),
   );
 });
+
+/// Safe placeholder used only during the signed-out routing transition.
+class _SignedOutCommitmentRepository implements CommitmentRepository {
+  const _SignedOutCommitmentRepository();
+
+  Never _signedOut() =>
+      throw const LockInException('Please sign in to continue.');
+
+  @override
+  Future<Snapshot> load() async => Snapshot.empty;
+
+  @override
+  Future<Commitment> create(Draft draft, String requestId) async =>
+      _signedOut();
+
+  @override
+  Future<void> fail(Commitment commitment, String date) async => _signedOut();
+
+  @override
+  Future<void> log(Commitment commitment, String date, int count) async =>
+      _signedOut();
+
+  @override
+  Future<void> pause(Commitment commitment) async => _signedOut();
+
+  @override
+  Future<void> resume(Commitment commitment) async => _signedOut();
+
+  @override
+  Future<Commitment> restart(
+    Commitment commitment,
+    String requestId,
+    String reason,
+    String note,
+  ) async => _signedOut();
+}
 
 /// Everything a screen needs to render commitments.
 class CommitmentsState {
@@ -129,11 +168,12 @@ class CommitmentsController extends Notifier<CommitmentsState> {
         clearError: true,
         now: ref.read(clockProvider)(),
       );
-    } catch (_) {
+    } catch (error) {
       if (ref.mounted && current == _revision) {
         state = state.copyWith(
-          error:
-              'Could not refresh your commitments. Your last saved data is shown.',
+          error: error is LockInException
+              ? error.message
+              : 'Could not refresh your commitments. Please retry.',
         );
       }
     } finally {

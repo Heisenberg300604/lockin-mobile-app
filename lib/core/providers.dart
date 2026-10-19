@@ -50,9 +50,5 @@ final apiClientProvider = Provider<ApiClient>(
       final gateway = await ref.read(authGatewayProvider.future);
       return gateway.sessionToken();
     },
-    onUnauthorized: () async {
-      final gateway = await ref.read(authGatewayProvider.future);
-      await gateway.signOut();
-    },
   ),
 );

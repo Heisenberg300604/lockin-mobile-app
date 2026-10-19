@@ -57,9 +57,15 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final data = ref.watch(commitmentsProvider);
-    final entries = data.snapshot.commitments.where((c) => isScheduled(c, _date)).toList();
+    final entries = data.snapshot.commitments
+        .where((c) => isScheduled(c, _date))
+        .toList();
     final past = data.snapshot.commitments
-        .where((c) => c.status == CommitmentStatus.completed || c.status == CommitmentStatus.broken)
+        .where(
+          (c) =>
+              c.status == CommitmentStatus.completed ||
+              c.status == CommitmentStatus.broken,
+        )
         .toList();
 
     return AppScreen(
@@ -69,7 +75,10 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
       children: [
         const SectionLabel('History'),
         if (data.error != null)
-          Notice(data.error!, onRetry: () => ref.read(commitmentsProvider.notifier).refresh()),
+          Notice(
+            data.error!,
+            onRetry: () => ref.read(commitmentsProvider.notifier).refresh(),
+          ),
         CalendarView(
           selected: _date,
           onSelect: (d) => setState(() => _date = d),
@@ -81,7 +90,10 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
               key: ValueKey(c.id),
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Align(alignment: Alignment.centerLeft, child: StatusChip(c.status)),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: StatusChip(c.status),
+                ),
                 TrackingRow(
                   commitment: c,
                   date: _date,
@@ -103,11 +115,20 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
               ],
             )
         else
-          const Label('No commitments scheduled for this date.', size: 13, muted: true),
+          const Label(
+            'No commitments scheduled for this date.',
+            size: 13,
+            muted: true,
+          ),
         const SectionLabel('Past attempts'),
-        for (final c in past) CommitmentCard(key: ValueKey('past${c.id}'), commitment: c),
+        for (final c in past)
+          CommitmentCard(key: ValueKey('past${c.id}'), commitment: c),
         if (past.isEmpty)
-          const Label('Your completed and broken attempts will stay here.', size: 13, muted: true),
+          const Label(
+            'Your completed and broken attempts will stay here.',
+            size: 13,
+            muted: true,
+          ),
       ],
     );
   }
