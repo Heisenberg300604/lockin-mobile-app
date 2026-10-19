@@ -1,0 +1,5 @@
+{
+  "CLERK_PUBLISHABLE_KEY": "pk_test_REPLACE_ME",
+  "API_URL": "https://lockin-a0os.onrender.com/api/v1",
+  "ENABLE_DEVICE_MODE": false
+}

@@ -1,0 +1,67 @@
+name: lockin
+description: "LockIn - build or quit habits with real commitments."
+publish_to: 'none' # This is an app, not a package: never publish it to pub.dev.
+
+# version: <marketing version>+<build number>. The build number must increase on
+# every Play Store / App Store upload.
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management (see docs/ARCHITECTURE.md for why Riverpod).
+  flutter_riverpod: ^3.4.3
+  # Declarative navigation: URL-style routes, redirects, tab shells.
+  go_router: ^18.1.0
+
+  # Authentication. Clerk's Flutter SDK (beta) talks to your Clerk instance.
+  clerk_flutter: ^0.0.18-beta
+  # Encrypted storage (Keychain / Android Keystore) for Clerk's session tokens.
+  flutter_secure_storage: ^11.2.0
+
+  # Plain on-device key/value storage for the local repository and preferences.
+  shared_preferences: ^2.5.6
+
+  # Local notifications for daily reminders + IANA time zone support.
+  flutter_local_notifications: ^22.3.2
+  timezone: ^0.11.2
+  flutter_timezone: ^5.1.1
+
+  # Misc.
+  flutter_svg: ^2.3.0 # the multi-colour Google "G" logo
+  uuid: ^4.6.0 # idempotency request IDs
+  intl: ^0.20.2 # date formatting
+  app_settings: ^9.0.1 # "Open device settings" button
+  clerk_auth: ^0.0.18-beta
+  dio: ^5.9.2 # authenticated REST client for the LockIn API
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  # Fonts are bundled (not downloaded at runtime) so text renders identically
+  # offline and on first launch. These are the exact files the React Native app
+  # used (@expo-google-fonts/inter + the Feather icon font), which is what keeps
+  # glyph shapes and line wrapping the same.
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter_400Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Inter_500Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter_600SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter_700Bold.ttf
+          weight: 700
+    - family: Feather
+      fonts:
+        - asset: assets/fonts/Feather.ttf
