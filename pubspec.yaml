@@ -38,6 +38,7 @@ dependencies:
   app_settings: ^9.0.1 # "Open device settings" button
   clerk_auth: ^0.0.18-beta
   dio: ^5.9.2 # authenticated REST client for the LockIn API
+  cupertino_icons: ^2.0.0
 
 dev_dependencies:
   flutter_test:

@@ -76,9 +76,16 @@ upload if you want a different one:
 
 * [ ] **App icon & splash**: replace the default Flutter icon (e.g. with the
       `flutter_launcher_icons` and `flutter_native_splash` packages).
-* [ ] **Android signing**: create an upload keystore, reference it in
-      `android/app/build.gradle.kts` (`signingConfigs.release`), build with
-      `flutter build appbundle --dart-define-from-file=env/prod.json`.
+* [ ] **Android signing**: create an upload keystore (back it up; losing it
+      means you can't ship updates without contacting Google):
+      `keytool -genkey -v -keystore android/upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload`.
+      Copy `android/key.properties.example` to `android/key.properties` and fill
+      in the passwords. `build.gradle.kts` uses it automatically and falls back
+      to debug keys (with a warning) when it is missing.
+* [ ] **Android builds**: always build through `scripts/build_android.sh` so
+      the env file is never forgotten (a build without it has sign-in
+      disabled). `scripts/build_android.sh` makes small per-CPU test APKs;
+      `scripts/build_android.sh prod aab` makes the Play Store bundle.
 * [ ] **iOS signing**: set your Team in Xcode, build with
       `flutter build ipa --dart-define-from-file=env/prod.json`.
 * [ ] `ENABLE_DEVICE_MODE=false` in the production env file.
