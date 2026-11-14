@@ -296,8 +296,8 @@ class CommitmentsController extends Notifier<CommitmentsState> {
   Future<void> delete(Commitment c) async {
     try {
       await _repository.delete(c);
-      ref.read(hapticsProvider).warning();
       if (ref.mounted) {
+        ref.read(hapticsProvider).warning();
         // Drop it at once so screens never show a deleted record.
         state = state.copyWith(
           snapshot: state.snapshot.copyWith(
@@ -311,7 +311,7 @@ class CommitmentsController extends Notifier<CommitmentsState> {
         );
       }
     } finally {
-      await refresh();
+      if (ref.mounted) await refresh();
     }
   }
 

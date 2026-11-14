@@ -289,10 +289,9 @@ CalendarDayState apiCalendarState(
 ) {
   final entry = apiCheckInOn(checkIns, c, date);
   if (entry != null && entry.outcome == CheckInOutcome.success) {
-    final created = entry.createdAt;
+    final created = DateTime.tryParse(entry.createdAt ?? '');
     final late =
-        created != null &&
-        dateInZone(DateTime.parse(created), c.timeZone).compareTo(date) > 0;
+        created != null && dateInZone(created, c.timeZone).compareTo(date) > 0;
     return late ? CalendarDayState.keptLate : CalendarDayState.keptOnTime;
   }
   if (entry != null && entry.outcome == CheckInOutcome.missed) {

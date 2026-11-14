@@ -346,7 +346,9 @@ class _CommitmentDetailScreenState
                 _DetailRow(
                   'Created',
                   formatDate(
-                    dateInZone(DateTime.parse(c.createdAt), c.timeZone),
+                    DateTime.tryParse(c.createdAt) == null
+                        ? c.startDate
+                        : dateInZone(DateTime.parse(c.createdAt), c.timeZone),
                   ),
                 ),
                 if (c.events.length > 1)
