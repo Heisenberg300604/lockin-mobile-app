@@ -45,16 +45,30 @@ The old SharedPreferences commitment snapshots and creation drafts are deleted
 once on startup by migration `lockin.remote-data-reset.v1`. Clerk's encrypted
 session and user preferences are not removed.
 
-## API constraints reflected by the client
+## API rules reflected by the client
 
-The currently deployed API supports one check-in for the commitment's current
-time-zone date only. The app does not claim it saved a legacy catch-up or
-count-based check-in. `QUIT` commitments may send `BROKEN`; `BUILD`
-commitments only send `KEPT`.
+The app follows the same rules as the LockIn web app; they live in
+`lib/features/commitments/domain/api_progress.dart`.
 
-The API has no restart endpoint or persisted attempt links. Restarting a
-broken commitment creates a fresh server commitment with the same rules.
+- **Check-ins and backfill.** One result per date. A kept day can be logged
+  for today or backfilled for the previous two days (`apiBackfillDays`), inside
+  the timeline, on a scheduled weekday, while the commitment is active. Today's
+  check-in omits `date` (the server uses its own clock); backfills send it.
+  Check-ins created on a later day than their date show as *logged late*.
+- **Breaking a quit habit.** `BROKEN` is sent with the chosen reason and an
+  optional note; the server stores them and ends the attempt (`breakReason`).
+  `BUILD` commitments only send `KEPT`.
+- **Periods.** Daily, Monday–Sunday weeks, calendar months, or windows from the
+  start date. Edge periods are clipped but keep the full target, so the wizard
+  runs `apiFeasibilityError` (a copy of the server's `validatePeriodFeasibility`)
+  before locking.
+- **Editing.** `PATCH /commitments/:id` changes the reward of an active
+  commitment; `DELETE /commitments/:id` removes it; `PATCH /me` saves the
+  display name shown in the app.
+- **Restart.** The API has no restart endpoint or attempt links. Restarting a
+  broken commitment creates a fresh server commitment with the same rules,
+  starting today.
 
-`api_progress.dart` implements the API's date-only daily, weekly, monthly,
-and fixed-window progress calculation. The card UI uses its current period
-counts.
+Device mode (`ENABLE_DEVICE_MODE=true`) uses the on-device
+`LocalCommitmentRepository` instead of the API. It is a development/test mode
+and still uses the legacy local lifecycle rules.

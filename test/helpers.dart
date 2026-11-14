@@ -3,7 +3,7 @@ library;
 
 import 'package:lockin/features/commitments/data/key_value_store.dart';
 import 'package:lockin/features/commitments/domain/models.dart';
-import 'package:timezone/data/latest.dart' as tzdata;
+import 'package:timezone/data/latest_all.dart' as tzdata;
 
 bool _initialised = false;
 

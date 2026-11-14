@@ -11,15 +11,18 @@ import '../../../../core/widgets/modal_card.dart';
 import '../../../../core/widgets/status_widgets.dart';
 import '../../../../core/widgets/tappable.dart';
 import '../../../../core/widgets/typography.dart';
+import '../../domain/api_progress.dart';
 import '../../domain/models.dart';
 import '../../domain/validation.dart';
 
-/// Which editor to show.
-enum PaceEditorMode { flexible, customDays }
+/// Which editor to show (web app: flexible weekly pace, flexible monthly
+/// pace, fixed weekly schedule).
+enum PaceEditorMode { weekly, monthly, customDays }
 
 /// Opens the pace editor. Returns the chosen [Pace], or `null` if dismissed.
 ///
-/// [draft] provides context for validation (Quit habits may only do 1 a day).
+/// [draft] provides context for validation: the target must be achievable in
+/// every (possibly partial) week or month of the timeline, as the API checks.
 Future<Pace?> showPaceEditor(
   BuildContext context, {
   required Draft draft,
@@ -28,11 +31,10 @@ Future<Pace?> showPaceEditor(
   final initial = switch (mode) {
     PaceEditorMode.customDays =>
       draft.pace is CustomPace ? draft.pace : const CustomPace([0]),
-    PaceEditorMode.flexible => switch (draft.pace) {
-      WeeklyPace() => draft.pace,
-      DailyPace(:final count) when count > 1 => draft.pace,
-      _ => const WeeklyPace(3),
-    },
+    PaceEditorMode.weekly =>
+      draft.pace is WeeklyPace ? draft.pace : const WeeklyPace(3),
+    PaceEditorMode.monthly =>
+      draft.pace is MonthlyPace ? draft.pace : const MonthlyPace(15),
   };
   return showAppModal<Pace>(
     context,
@@ -59,17 +61,23 @@ class _PaceEditorState extends State<_PaceEditor> {
   late Pace _pace = widget.initial;
   String _error = '';
 
-  int get _maxDaily => widget.draft.path == HabitPath.quit ? 1 : 99;
-
   void _apply() {
     // Validate against the whole draft, filling the fields not entered yet.
-    final problem = validateDraft(
-      widget.draft.copyWith(
-        name: widget.draft.name.isEmpty ? 'Target' : widget.draft.name,
-        reward: widget.draft.reward.isEmpty ? 'Reward' : widget.draft.reward,
-        pace: _pace,
-      ),
-    );
+    final problem =
+        validateDraft(
+          widget.draft.copyWith(
+            name: widget.draft.name.isEmpty ? 'Target' : widget.draft.name,
+            reward: widget.draft.reward.isEmpty
+                ? 'Reward'
+                : widget.draft.reward,
+            pace: _pace,
+          ),
+        ) ??
+        apiFeasibilityError(
+          startDate: widget.draft.startDate,
+          duration: widget.draft.duration,
+          pace: _pace,
+        );
     if (problem != null) {
       setState(() => _error = problem);
       return;
@@ -81,21 +89,37 @@ class _PaceEditorState extends State<_PaceEditor> {
   Widget build(BuildContext context) {
     final pace = _pace;
     return ModalCard(
-      title: widget.mode == PaceEditorMode.customDays
-          ? 'Custom Days'
-          : 'Flexible Pace',
+      title: switch (widget.mode) {
+        PaceEditorMode.weekly => 'Flexible weekly pace',
+        PaceEditorMode.monthly => 'Flexible monthly pace',
+        PaceEditorMode.customDays => 'Fixed weekly schedule',
+      },
       children: [
         if (pace is CustomPace) ...[
-          LockButton(
-            light: true,
-            title: 'Weekdays',
-            onPressed: () =>
-                setState(() => _pace = const CustomPace([0, 1, 2, 3, 4])),
+          const Label(
+            'Each selected weekday is required before the week closes.',
+            muted: true,
           ),
-          LockButton(
-            light: true,
-            title: 'Weekends',
-            onPressed: () => setState(() => _pace = const CustomPace([5, 6])),
+          Row(
+            spacing: 12,
+            children: [
+              Expanded(
+                child: LockButton(
+                  light: true,
+                  title: 'Weekdays',
+                  onPressed: () =>
+                      setState(() => _pace = const CustomPace([0, 1, 2, 3, 4])),
+                ),
+              ),
+              Expanded(
+                child: LockButton(
+                  light: true,
+                  title: 'Weekends',
+                  onPressed: () =>
+                      setState(() => _pace = const CustomPace([5, 6])),
+                ),
+              ),
+            ],
           ),
           const Label(
             'OR SELECT SPECIFIC DAYS',
@@ -111,56 +135,47 @@ class _PaceEditorState extends State<_PaceEditor> {
                   label: weekdayNames[i],
                   selected: pace.days.contains(i),
                   onTap: () => setState(() {
+                    _error = '';
                     _pace = CustomPace(
                       pace.days.contains(i)
                           ? pace.days.where((d) => d != i).toList()
-                          : [...pace.days, i],
+                          : ([...pace.days, i]..sort()),
                     );
                   }),
                 ),
             ],
           ),
         ] else ...[
-          const Label('Execute', muted: true, align: TextAlign.center),
+          Label(
+            pace is MonthlyPace
+                ? 'Meet this minimum on any days in the month. Extra check-ins '
+                      'are optional.'
+                : 'Meet this minimum on any days in the week. Once it is '
+                      'reached, the rest of the week is optional.',
+            muted: true,
+          ),
           Counter(
             value: _countOf(pace),
             min: 1,
-            max: pace is WeeklyPace ? 7 : _maxDaily,
+            max: pace is MonthlyPace ? 31 : 7,
             onChanged: (count) => setState(() {
-              _pace = pace is WeeklyPace ? WeeklyPace(count) : DailyPace(count);
+              _error = '';
+              _pace = pace is MonthlyPace
+                  ? MonthlyPace(count)
+                  : WeeklyPace(count);
             }),
           ),
-          const Label('times a', muted: true, align: TextAlign.center),
-          Row(
-            spacing: 16,
-            children: [
-              Expanded(
-                child: LockButton(
-                  light: true,
-                  title: 'Week',
-                  selected: pace is WeeklyPace,
-                  onPressed: () => setState(() {
-                    final count = _countOf(pace);
-                    _pace = WeeklyPace(count > 7 ? 7 : count);
-                  }),
-                ),
-              ),
-              Expanded(
-                child: LockButton(
-                  light: true,
-                  title: 'Day',
-                  selected: pace is DailyPace,
-                  onPressed: () => setState(() {
-                    final count = _countOf(pace);
-                    _pace = DailyPace(count > _maxDaily ? _maxDaily : count);
-                  }),
-                ),
-              ),
-            ],
+          Label(
+            pace is MonthlyPace ? 'days a month' : 'times a week',
+            muted: true,
+            align: TextAlign.center,
           ),
         ],
         if (_error.isNotEmpty) ErrorNote(_error),
-        LockButton(title: 'Apply Target', onPressed: _apply),
+        LockButton(
+          title: pace is CustomPace ? 'APPLY SCHEDULE' : 'APPLY TARGET',
+          onPressed: _apply,
+        ),
       ],
     );
   }
@@ -168,7 +183,7 @@ class _PaceEditorState extends State<_PaceEditor> {
   int _countOf(Pace p) => switch (p) {
     DailyPace(:final count) => count,
     WeeklyPace(:final count) => count,
-    CustomPace() => 1,
+    CustomPace(:final days) => days.length,
     MonthlyPace(:final count) => count,
     WindowPace(:final targetCount) => targetCount,
   };

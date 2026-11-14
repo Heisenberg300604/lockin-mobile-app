@@ -4,15 +4,17 @@ library;
 import '../../../core/network/api_client.dart';
 import '../../../core/utils/calendar_date.dart';
 import '../../auth/data/auth_gateway.dart';
+import '../domain/api_progress.dart';
 import '../domain/models.dart';
 import '../domain/validation.dart';
 import 'commitment_repository.dart';
 
 /// Loads and mutates the signed-in user's server-side commitments.
 ///
-/// The public API deliberately only permits one check-in for *today*; the
-/// legacy UI's catch-up/count semantics are rejected here instead of being
-/// falsely shown as saved.
+/// The API records one kept/broken result per date: today, or a kept day
+/// backfilled within the previous [apiBackfillDays] days. The legacy UI's
+/// count-based semantics are rejected here instead of being falsely shown as
+/// saved.
 class RemoteCommitmentRepository implements CommitmentRepository {
   RemoteCommitmentRepository({required this._api, required this._auth});
 
@@ -24,13 +26,21 @@ class RemoteCommitmentRepository implements CommitmentRepository {
     // `/me` both provisions the internal profile and gives us the chance to
     // mirror Clerk's display name once, just as the web client does.
     final profile = _jsonObject(await _api.get('/me'));
-    final gateway = await _auth();
-    final name = gateway.currentUser?.name.trim() ?? '';
-    if (profile['displayName'] == null && name.isNotEmpty) {
-      await _api.patch(
-        '/me',
-        data: {'displayName': name.length > 80 ? name.substring(0, 80) : name},
-      );
+    var displayName = (profile['displayName'] as String?)?.trim();
+    if (displayName == null || displayName.isEmpty) {
+      final gateway = await _auth();
+      final name = gateway.currentUser?.name.trim() ?? '';
+      if (name.isNotEmpty) {
+        final saved = _jsonObject(
+          await _api.patch(
+            '/me',
+            data: {
+              'displayName': name.length > 80 ? name.substring(0, 80) : name,
+            },
+          ),
+        );
+        displayName = (saved['displayName'] as String?)?.trim();
+      }
     }
 
     final body = await _api.get('/commitments');
@@ -38,10 +48,18 @@ class RemoteCommitmentRepository implements CommitmentRepository {
     final commitments = records.map(_commitmentFromApi).toList();
     final checkIns = <CheckIn>[
       for (final record in records)
-        for (final checkIn in _jsonList(record['checkIns']))
+        for (final checkIn in _jsonList(
+          record['checkIns'] ?? const <dynamic>[],
+        ))
           _checkInFromApi(checkIn, record['id'] as String),
     ];
-    return Snapshot(commitments: commitments, checkIns: checkIns);
+    return Snapshot(
+      commitments: commitments,
+      checkIns: checkIns,
+      displayName: displayName == null || displayName.isEmpty
+          ? null
+          : displayName,
+    );
   });
 
   @override
@@ -58,6 +76,12 @@ class RemoteCommitmentRepository implements CommitmentRepository {
         'The LockIn API supports one daily check-in per commitment.',
       );
     }
+    final feasibility = apiFeasibilityError(
+      startDate: draft.startDate,
+      duration: draft.duration,
+      pace: draft.pace,
+    );
+    if (feasibility != null) throw LockInException(feasibility);
     final payload = _createPayload(draft, startDate: draft.startDate);
     final data = _jsonObject(await _api.post('/commitments', data: payload));
     return _commitmentFromApi(data);
@@ -66,7 +90,7 @@ class RemoteCommitmentRepository implements CommitmentRepository {
   @override
   Future<void> log(Commitment commitment, String date, int count) =>
       _safe(() async {
-        _requireToday(commitment, date);
+        final today = _requireLoggable(commitment, date);
         if (count < 1) {
           throw const LockInException(
             'Use the broken outcome only when you broke a quit commitment.',
@@ -74,22 +98,73 @@ class RemoteCommitmentRepository implements CommitmentRepository {
         }
         await _api.post(
           '/commitments/${commitment.id}/check-ins',
-          data: const {'outcome': 'KEPT'},
+          // Today is left to the server's own clock, exactly as the web app
+          // does; only backfilled days name their date.
+          data: {'outcome': 'KEPT', if (date != today) 'date': date},
         );
       });
 
   @override
-  Future<void> fail(Commitment commitment, String date) => _safe(() async {
-    _requireToday(commitment, date);
+  Future<void> fail(
+    Commitment commitment,
+    String date, {
+    String reason = '',
+    String note = '',
+  }) => _safe(() async {
+    final today = _requireLoggable(commitment, date);
     if (commitment.path != HabitPath.quit) {
       throw const LockInException(
         'Build commitments can only be checked in as kept.',
       );
     }
+    final why = reason.trim();
+    final detail = note.trim();
     await _api.post(
       '/commitments/${commitment.id}/check-ins',
-      data: const {'outcome': 'BROKEN', 'reason': 'Marked as broken in LockIn'},
+      data: {
+        'outcome': 'BROKEN',
+        if (date != today) 'date': date,
+        'reason': why.isEmpty ? 'Commitment broken.' : _limit(why, 240),
+        if (detail.isNotEmpty) 'note': _limit(detail, 1000),
+      },
     );
+  });
+
+  @override
+  Future<Commitment> updateReward(Commitment commitment, String reward) =>
+      _safe(() async {
+        final value = reward.trim();
+        if (value.isEmpty) {
+          throw const LockInException('Add a reward before saving.');
+        }
+        if (value.length > maxRewardLength) {
+          throw const LockInException(
+            'Keep the reward within $maxRewardLength characters.',
+          );
+        }
+        final data = _jsonObject(
+          await _api.patch(
+            '/commitments/${commitment.id}',
+            data: {'reward': value},
+          ),
+        );
+        return _commitmentFromApi(data);
+      });
+
+  @override
+  Future<void> delete(Commitment commitment) => _safe(() async {
+    await _api.delete('/commitments/${commitment.id}');
+  });
+
+  @override
+  Future<void> updateDisplayName(String displayName) => _safe(() async {
+    final value = displayName.trim();
+    if (value.isEmpty || value.length > 80) {
+      throw const LockInException(
+        'Use a display name between 1 and 80 characters.',
+      );
+    }
+    await _api.patch('/me', data: {'displayName': value});
   });
 
   @override
@@ -139,12 +214,23 @@ class RemoteCommitmentRepository implements CommitmentRepository {
     }
   }
 
-  void _requireToday(Commitment commitment, String date) {
+  /// Rejects dates the server would refuse (future, or older than the
+  /// backfill window) and returns today in the commitment's zone.
+  String _requireLoggable(Commitment commitment, String date) {
     final today = dateInZone(DateTime.now(), commitment.timeZone);
-    if (date != today) {
-      throw const LockInException('LockIn only accepts a check-in for today.');
+    if (date.compareTo(today) > 0) {
+      throw const LockInException('Future dates cannot be logged.');
     }
+    if (dayDifference(date, today) > apiBackfillDays) {
+      throw const LockInException(
+        'Check-ins may only be backfilled for the previous two days.',
+      );
+    }
+    return today;
   }
+
+  String _limit(String value, int max) =>
+      value.length > max ? value.substring(0, max) : value;
 
   Map<String, dynamic> _createPayload(
     Draft draft, {
@@ -222,6 +308,9 @@ class RemoteCommitmentRepository implements CommitmentRepository {
           ? FailureReason.explicit
           : null,
       completedAt: completedAt,
+      breakReason: (json['breakReason'] as String?)?.trim().isEmpty ?? true
+          ? null
+          : (json['breakReason'] as String).trim(),
       events: [
         LifecycleEvent(
           type: LifecycleEventType.locked,
@@ -276,7 +365,11 @@ class RemoteCommitmentRepository implements CommitmentRepository {
         outcome: json['outcome'] == 'KEPT'
             ? CheckInOutcome.success
             : CheckInOutcome.missed,
-        updatedAt: json['updatedAt'] as String,
+        updatedAt:
+            json['updatedAt'] as String? ?? json['createdAt'] as String? ?? '',
+        createdAt: json['createdAt'] as String?,
+        note: json['note'] as String?,
+        reason: json['reason'] as String?,
       );
 
   String _dateOnly(Object? value) {

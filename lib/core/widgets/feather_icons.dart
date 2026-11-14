@@ -38,4 +38,6 @@ abstract final class Feather {
   static const settings = IconData(0xf1d3, fontFamily: _family);
   static const chevronLeft = IconData(0xf12f, fontFamily: _family);
   static const chevronRight = IconData(0xf130, fontFamily: _family);
+  static const edit2 = IconData(0xf160, fontFamily: _family);
+  static const trash2 = IconData(0xf1f5, fontFamily: _family);
 }

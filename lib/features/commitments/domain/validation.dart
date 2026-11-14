@@ -9,6 +9,15 @@ import '../../../core/utils/calendar_date.dart';
 import 'models.dart';
 import 'schedule.dart';
 
+/// Field limits enforced by the LockIn API (`CreateCommitmentDto`).
+const int maxNameLength = 120;
+
+/// Maximum description length accepted by the API.
+const int maxDescriptionLength = 1000;
+
+/// Maximum reward length accepted by the API.
+const int maxRewardLength = 160;
+
 /// A blank wizard draft: 30 days, "Everyday", starting today.
 Draft freshDraft([DateTime? now]) => Draft(
   path: null,
@@ -36,11 +45,11 @@ Draft withCurrentStart(Draft d, [DateTime? now]) {
 String? validateDraft(Draft d, [DateTime? now]) {
   final clock = now ?? DateTime.now();
   if (d.path == null) return 'Choose Build or Quit to continue.';
-  if (d.name.trim().isEmpty || d.name.trim().length > 80) {
-    return 'Give your commitment a name between 1 and 80 characters.';
+  if (d.name.trim().isEmpty || d.name.trim().length > maxNameLength) {
+    return 'Give your commitment a name between 1 and $maxNameLength characters.';
   }
-  if (d.description.length > 300) {
-    return 'Keep the description within 300 characters.';
+  if (d.description.length > maxDescriptionLength) {
+    return 'Keep the description within $maxDescriptionLength characters.';
   }
   if (!isValidDate(d.startDate) ||
       d.startDate.compareTo(dateInZone(clock)) < 0) {
@@ -77,8 +86,8 @@ String? validateDraft(Draft d, [DateTime? now]) {
         return 'Choose a valid execution target.';
       }
   }
-  if (d.reward.trim().isEmpty || d.reward.trim().length > 120) {
-    return 'Choose a reward, up to 120 characters.';
+  if (d.reward.trim().isEmpty || d.reward.trim().length > maxRewardLength) {
+    return 'Choose a reward, up to $maxRewardLength characters.';
   }
   return null;
 }

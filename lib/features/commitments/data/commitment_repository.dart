@@ -30,7 +30,9 @@ abstract interface class CommitmentRepository {
   /// creating a duplicate.
   Future<Commitment> create(Draft draft, String requestId);
 
-  /// Saves the absolute [count] for [date] (see [CheckIn]).
+  /// Records [date] as kept. [date] is today or a day inside the backfill
+  /// window (see `apiBackfillDays`). [count] is kept for the legacy local
+  /// repository; the API records one kept result per date.
   Future<void> log(Commitment commitment, String date, int count);
 
   /// Pauses [commitment] from tomorrow.
@@ -39,8 +41,23 @@ abstract interface class CommitmentRepository {
   /// Resumes a paused [commitment].
   Future<void> resume(Commitment commitment);
 
-  /// Records an explicit missed day for [date].
-  Future<void> fail(Commitment commitment, String date);
+  /// Records that a quit [commitment] was broken on [date], with the
+  /// user's [reason] and optional private [note]. This ends the attempt.
+  Future<void> fail(
+    Commitment commitment,
+    String date, {
+    String reason = '',
+    String note = '',
+  });
+
+  /// Changes the reward of an active [commitment].
+  Future<Commitment> updateReward(Commitment commitment, String reward);
+
+  /// Permanently deletes [commitment] and its check-in history.
+  Future<void> delete(Commitment commitment);
+
+  /// Saves the account's display name.
+  Future<void> updateDisplayName(String displayName);
 
   /// Restarts a broken [commitment] as a new linked attempt, saving the
   /// optional reflection. Idempotent per [requestId] / attempt.

@@ -24,6 +24,7 @@ import 'dart:convert';
 import '../../../core/utils/calendar_date.dart';
 import '../domain/lifecycle.dart';
 import '../domain/models.dart';
+import '../domain/schedule.dart';
 import '../domain/validation.dart';
 import 'commitment_repository.dart';
 import 'key_value_store.dart';
@@ -38,9 +39,9 @@ class LocalCommitmentRepository implements CommitmentRepository {
     required KeyValueStore store,
     required String storageKey,
     DateTime Function()? clock,
-  })  : _store = store, // ignore: prefer_initializing_formals
-        _key = storageKey,
-        _now = clock ?? DateTime.now;
+  }) : _store = store, // ignore: prefer_initializing_formals
+       _key = storageKey,
+       _now = clock ?? DateTime.now;
 
   final KeyValueStore _store;
   final String _key;
@@ -54,10 +55,13 @@ class LocalCommitmentRepository implements CommitmentRepository {
     return Snapshot.fromJson(jsonDecode(raw) as Map<String, dynamic>);
   }
 
-  Future<void> _write(Snapshot data) => _store.setString(_key, jsonEncode(data.toJson()));
+  Future<void> _write(Snapshot data) =>
+      _store.setString(_key, jsonEncode(data.toJson()));
 
   /// Runs [action] inside the serialized read → reconcile → apply → save cycle.
-  Future<T> _change<T>(({Snapshot data, T result}) Function(Snapshot data) action) {
+  Future<T> _change<T>(
+    ({Snapshot data, T result}) Function(Snapshot data) action,
+  ) {
     final operation = _queue.then((_) async {
       var data = await _read();
 
@@ -87,31 +91,107 @@ class LocalCommitmentRepository implements CommitmentRepository {
   }
 
   Snapshot _replace(Snapshot data, Commitment updated) => data.copyWith(
-        commitments: [
-          for (final c in data.commitments) c.attemptId == updated.attemptId ? updated : c,
-        ],
-      );
+    commitments: [
+      for (final c in data.commitments)
+        c.attemptId == updated.attemptId ? updated : c,
+    ],
+  );
 
   @override
   Future<Snapshot> load() => _change((data) => (data: data, result: data));
 
   @override
   Future<void> pause(Commitment commitment) => _change((data) {
-        final paused = pauseCommitment(_find(data, commitment), _now());
-        return (data: _replace(data, paused), result: null);
-      });
+    final paused = pauseCommitment(_find(data, commitment), _now());
+    return (data: _replace(data, paused), result: null);
+  });
 
   @override
   Future<void> resume(Commitment commitment) => _change((data) {
-        final resumed = resumeCommitment(_find(data, commitment), _now());
-        return (data: _replace(data, resumed), result: null);
+    final resumed = resumeCommitment(_find(data, commitment), _now());
+    return (data: _replace(data, resumed), result: null);
+  });
+
+  @override
+  Future<void> fail(
+    Commitment commitment,
+    String date, {
+    String reason = '',
+    String note = '',
+  }) => _change((data) {
+    var next = failDay(data, _find(data, commitment), date, _now());
+    // Keep the reason/note on the check-in and attempt, like the API does.
+    final why = reason.trim();
+    next = next.copyWith(
+      checkIns: [
+        for (final l in next.checkIns)
+          l.attemptId == commitment.attemptId && l.date == date
+              ? CheckIn(
+                  attemptId: l.attemptId,
+                  date: l.date,
+                  count: l.count,
+                  outcome: l.outcome,
+                  updatedAt: l.updatedAt,
+                  createdAt: l.updatedAt,
+                  reason: why.isEmpty ? null : why,
+                  note: note.trim().isEmpty ? null : note.trim(),
+                )
+              : l,
+      ],
+    );
+    final broken = _find(next, commitment);
+    if (broken.status == CommitmentStatus.broken) {
+      next = _replace(
+        next,
+        broken.copyWith(breakReason: why.isEmpty ? 'Commitment broken.' : why),
+      );
+    }
+    return (data: next, result: null);
+  });
+
+  @override
+  Future<Commitment> updateReward(Commitment commitment, String reward) =>
+      _change((data) {
+        final current = _find(data, commitment);
+        if (current.status != CommitmentStatus.active) {
+          throw const LockInException('Only active commitments can be edited.');
+        }
+        final value = reward.trim();
+        if (value.isEmpty || value.length > maxRewardLength) {
+          throw const LockInException(
+            'Use a reward between 1 and $maxRewardLength characters.',
+          );
+        }
+        final updated = current.copyWith(reward: value);
+        return (data: _replace(data, updated), result: updated);
       });
 
   @override
-  Future<void> fail(Commitment commitment, String date) => _change((data) {
-        final next = failDay(data, _find(data, commitment), date, _now());
-        return (data: next, result: null);
-      });
+  Future<void> delete(Commitment commitment) => _change((data) {
+    final current = _find(data, commitment);
+    return (
+      data: data.copyWith(
+        commitments: data.commitments
+            .where((c) => c.attemptId != current.attemptId)
+            .toList(),
+        checkIns: data.checkIns
+            .where((l) => l.attemptId != current.attemptId)
+            .toList(),
+      ),
+      result: null,
+    );
+  });
+
+  @override
+  Future<void> updateDisplayName(String displayName) => _change((data) {
+    final value = displayName.trim();
+    if (value.isEmpty || value.length > 80) {
+      throw const LockInException(
+        'Use a display name between 1 and 80 characters.',
+      );
+    }
+    return (data: data.copyWith(displayName: value), result: null);
+  });
 
   @override
   Future<Commitment> restart(
@@ -119,67 +199,74 @@ class LocalCommitmentRepository implements CommitmentRepository {
     String requestId,
     String reason,
     String note,
-  ) =>
-      _change((data) {
-        final restarted = restartAttempt(
-          data,
-          _find(data, commitment),
-          requestId,
-          reason,
-          note,
-          _now(),
-        );
-        return (data: restarted.snapshot, result: restarted.attempt);
-      });
+  ) => _change((data) {
+    final restarted = restartAttempt(
+      data,
+      _find(data, commitment),
+      requestId,
+      reason,
+      note,
+      _now(),
+    );
+    return (data: restarted.snapshot, result: restarted.attempt);
+  });
 
   @override
   Future<Commitment> create(Draft draft, String requestId) => _change((data) {
-        // Idempotent: a retry with the same id returns the stored commitment.
-        for (final c in data.commitments) {
-          if (c.id == requestId) return (data: data, result: c);
-        }
-        final problem = validateDraft(draft, _now());
-        if (problem != null) throw LockInException(problem);
+    // Idempotent: a retry with the same id returns the stored commitment.
+    for (final c in data.commitments) {
+      if (c.id == requestId) return (data: data, result: c);
+    }
+    final problem = validateDraft(draft, _now());
+    if (problem != null) throw LockInException(problem);
 
-        final now = _now();
-        final created = withEvent(
-          Commitment(
-            id: requestId,
-            attemptId: requestId,
-            path: draft.path!,
-            name: draft.name.trim(),
-            description: draft.description.trim(),
-            startDate: draft.startDate,
-            duration: draft.duration,
-            pace: draft.pace,
-            reward: draft.reward.trim(),
-            timeZone: deviceZone(),
-            status: CommitmentStatus.active,
-            createdAt: now.toUtc().toIso8601String(),
-          ),
-          LifecycleEventType.locked,
-          now,
-          draft.startDate,
-        );
-        return (
-          data: data.copyWith(commitments: [created, ...data.commitments]),
-          result: created,
-        );
-      });
+    final now = _now();
+    final created = withEvent(
+      Commitment(
+        id: requestId,
+        attemptId: requestId,
+        path: draft.path!,
+        name: draft.name.trim(),
+        description: draft.description.trim(),
+        startDate: draft.startDate,
+        duration: draft.duration,
+        pace: draft.pace,
+        reward: draft.reward.trim(),
+        timeZone: deviceZone(),
+        status: CommitmentStatus.active,
+        createdAt: now.toUtc().toIso8601String(),
+      ),
+      LifecycleEventType.locked,
+      now,
+      draft.startDate,
+    );
+    return (
+      data: data.copyWith(commitments: [created, ...data.commitments]),
+      result: created,
+    );
+  });
 
   @override
-  Future<void> log(Commitment commitment, String date, int count) => _change((data) {
+  Future<void> log(Commitment commitment, String date, int count) =>
+      _change((data) {
         final current = _find(data, commitment);
         final now = _now();
         validateCheckIn(current, date, count, now);
 
-        final target = current.pace is DailyPace ? (current.pace as DailyPace).count : 1;
+        final target = current.pace is DailyPace
+            ? (current.pace as DailyPace).count
+            : 1;
         final entry = CheckIn(
           attemptId: commitment.attemptId,
           date: date,
           count: count,
-          outcome: count >= target ? CheckInOutcome.success : CheckInOutcome.partial,
+          outcome: count >= target
+              ? CheckInOutcome.success
+              : CheckInOutcome.partial,
           updatedAt: now.toUtc().toIso8601String(),
+          createdAt:
+              getLog(data.checkIns, current, date)?.createdAt ??
+              now.toUtc().toIso8601String(),
         );
         final checkIns = [...data.checkIns];
         final i = checkIns.indexWhere(

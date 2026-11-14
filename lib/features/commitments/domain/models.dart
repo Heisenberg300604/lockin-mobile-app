@@ -385,6 +385,7 @@ class Commitment {
     this.completedAt,
     this.reflection,
     this.events = const [],
+    this.breakReason,
   });
 
   /// Unique id (also used in navigation routes).
@@ -452,11 +453,17 @@ class Commitment {
   /// Dated history.
   final List<LifecycleEvent> events;
 
+  /// The server's explanation of why the attempt broke: the reason the user
+  /// gave when recording a break, or the period that missed its target.
+  final String? breakReason;
+
   /// Returns a copy with the given fields replaced.
   ///
   /// Note: you cannot use this to set a field back to `null`. No rule in the
   /// app ever needs to; fields only get filled in over an attempt's life.
   Commitment copyWith({
+    String? reward,
+    String? breakReason,
     CommitmentStatus? status,
     List<PauseInterval>? pauses,
     String? failureDate,
@@ -474,7 +481,7 @@ class Commitment {
     startDate: startDate,
     duration: duration,
     pace: pace,
-    reward: reward,
+    reward: reward ?? this.reward,
     timeZone: timeZone,
     status: status ?? this.status,
     createdAt: createdAt,
@@ -487,6 +494,7 @@ class Commitment {
     completedAt: completedAt ?? this.completedAt,
     reflection: reflection ?? this.reflection,
     events: events ?? this.events,
+    breakReason: breakReason ?? this.breakReason,
   );
 
   /// JSON form.
@@ -512,6 +520,7 @@ class Commitment {
     if (completedAt != null) 'completedAt': completedAt,
     if (reflection != null) 'reflection': reflection!.toJson(),
     'events': events.map((e) => e.toJson()).toList(),
+    if (breakReason != null) 'breakReason': breakReason,
   };
 
   /// Reads a commitment from JSON.
@@ -545,6 +554,7 @@ class Commitment {
     events: ((json['events'] as List<dynamic>?) ?? const [])
         .map((e) => LifecycleEvent.fromJson(e as Map<String, dynamic>))
         .toList(),
+    breakReason: json['breakReason'] as String?,
   );
 }
 
@@ -565,6 +575,9 @@ class CheckIn {
     required this.count,
     required this.updatedAt,
     this.outcome,
+    this.createdAt,
+    this.note,
+    this.reason,
   });
 
   /// The attempt this belongs to.
@@ -583,6 +596,16 @@ class CheckIn {
   /// Success, partial progress, or an explicit "missed".
   final CheckInOutcome? outcome;
 
+  /// ISO-8601 instant the check-in was first recorded. When this falls on a
+  /// later calendar day than [date] the day was backfilled ("logged late").
+  final String? createdAt;
+
+  /// Optional private note saved with the check-in.
+  final String? note;
+
+  /// Why a quit commitment broke (only on a missed outcome).
+  final String? reason;
+
   /// JSON form.
   Map<String, dynamic> toJson() => {
     'attemptId': attemptId,
@@ -590,6 +613,9 @@ class CheckIn {
     'count': count,
     'updatedAt': updatedAt,
     if (outcome != null) 'outcome': outcome!.name,
+    if (createdAt != null) 'createdAt': createdAt,
+    if (note != null) 'note': note,
+    if (reason != null) 'reason': reason,
   };
 
   /// Reads a check-in from JSON.
@@ -601,6 +627,9 @@ class CheckIn {
     outcome: json['outcome'] == null
         ? null
         : CheckInOutcome.values.byName(json['outcome'] as String),
+    createdAt: json['createdAt'] as String?,
+    note: json['note'] as String?,
+    reason: json['reason'] as String?,
   );
 }
 
@@ -610,7 +639,11 @@ class CheckIn {
 /// lifecycle rules apply several related changes atomically.
 class Snapshot {
   /// Creates a snapshot.
-  const Snapshot({this.commitments = const [], this.checkIns = const []});
+  const Snapshot({
+    this.commitments = const [],
+    this.checkIns = const [],
+    this.displayName,
+  });
 
   /// An empty account.
   static const Snapshot empty = Snapshot();
@@ -621,17 +654,26 @@ class Snapshot {
   /// All check-ins.
   final List<CheckIn> checkIns;
 
-  /// Returns a copy with the given lists replaced.
-  Snapshot copyWith({List<Commitment>? commitments, List<CheckIn>? checkIns}) =>
-      Snapshot(
-        commitments: commitments ?? this.commitments,
-        checkIns: checkIns ?? this.checkIns,
-      );
+  /// The account's display name saved on the server (`GET /me`), or `null`
+  /// when none is set (device mode, or a brand-new profile).
+  final String? displayName;
+
+  /// Returns a copy with the given fields replaced.
+  Snapshot copyWith({
+    List<Commitment>? commitments,
+    List<CheckIn>? checkIns,
+    String? displayName,
+  }) => Snapshot(
+    commitments: commitments ?? this.commitments,
+    checkIns: checkIns ?? this.checkIns,
+    displayName: displayName ?? this.displayName,
+  );
 
   /// JSON form.
   Map<String, dynamic> toJson() => {
     'commitments': commitments.map((c) => c.toJson()).toList(),
     'checkIns': checkIns.map((c) => c.toJson()).toList(),
+    if (displayName != null) 'displayName': displayName,
   };
 
   /// Reads a snapshot from JSON.
@@ -642,5 +684,6 @@ class Snapshot {
     checkIns: ((json['checkIns'] as List<dynamic>?) ?? const [])
         .map((c) => CheckIn.fromJson(c as Map<String, dynamic>))
         .toList(),
+    displayName: json['displayName'] as String?,
   );
 }

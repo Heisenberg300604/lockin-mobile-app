@@ -16,7 +16,6 @@ import '../../domain/models.dart';
 import '../../domain/schedule.dart';
 import '../widgets/calendar_view.dart';
 import '../widgets/commitment_card.dart';
-import '../widgets/log_modal.dart';
 import '../widgets/status_chip.dart';
 import '../widgets/tracking_row.dart';
 
@@ -97,9 +96,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                 TrackingRow(
                   commitment: c,
                   date: _date,
-                  onPressed: () => canApiCheckIn(c, _date, data.now)
-                      ? showLogModal(context, LogSelection(c, _date))
-                      : context.push('/commitment/${c.id}'),
+                  onPressed: () => openCheckIn(context, ref, c, _date),
                 ),
                 Align(
                   alignment: Alignment.centerRight,

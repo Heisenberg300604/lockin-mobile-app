@@ -13,6 +13,7 @@ library;
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/app_config.dart';
@@ -62,9 +63,16 @@ class SessionState {
 /// disabled stand-in so the app still runs.
 final authGatewayProvider = FutureProvider<AuthGateway>((ref) async {
   if (!AppConfig.hasClerk) return DisabledAuthGateway();
-  final gateway = await ClerkAuthGateway.create(AppConfig.clerkPublishableKey);
-  ref.onDispose(gateway.dispose);
-  return gateway;
+  try {
+    final gateway = await ClerkAuthGateway.create(AppConfig.clerkPublishableKey);
+    ref.onDispose(gateway.dispose);
+    return gateway;
+  } catch (error, stack) {
+    // The sign-in screen shows a friendly message; keep the real cause in
+    // debug logs so start-up problems can be diagnosed.
+    debugPrint('Clerk initialisation failed: $error\n$stack');
+    rethrow;
+  }
 });
 
 const _deviceSessionKey = 'lockin.device-session.v1';

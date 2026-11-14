@@ -8,11 +8,11 @@ import '../../../../core/widgets/app_screen.dart';
 import '../../../../core/widgets/status_widgets.dart';
 import '../../../../core/widgets/typography.dart';
 import '../../application/commitments_controller.dart';
-import '../../domain/schedule.dart';
-import '../widgets/log_modal.dart';
+import '../../domain/api_progress.dart';
 import '../widgets/tracking_row.dart';
 
-/// Every task that can be logged right now (today + open catch-up windows).
+/// Every row due today plus unlogged days still inside the two-day backfill
+/// window.
 class TrackingScreen extends ConsumerWidget {
   /// Creates the screen.
   const TrackingScreen({super.key});
@@ -39,7 +39,7 @@ class TrackingScreen extends ConsumerWidget {
             date: row.date,
             catchUp: row.catchUp,
             onPressed: () =>
-                showLogModal(context, LogSelection(row.commitment, row.date)),
+                openCheckIn(context, ref, row.commitment, row.date),
           ),
       ],
     );

@@ -41,8 +41,25 @@ String deviceZone() => DeviceZone.current;
 
 /// Looks up an IANA zone. The bundled database has no plain `UTC` entry, so
 /// that one is mapped to the built-in constant.
-tz.Location locationFor(String timeZone) =>
-    timeZone == 'UTC' ? tz.UTC : tz.getLocation(timeZone);
+///
+/// Zones come from the server, where browsers may have saved legacy aliases
+/// such as `Asia/Calcutta` (the full database, `latest_all`, includes them).
+/// An unknown name must never crash a screen, so it falls back to the
+/// device's zone, then UTC.
+tz.Location locationFor(String timeZone) {
+  if (timeZone == 'UTC' || timeZone == 'Etc/UTC') return tz.UTC;
+  try {
+    return tz.getLocation(timeZone);
+  } catch (_) {
+    final device = DeviceZone.current;
+    if (device != timeZone && device != 'UTC') {
+      try {
+        return tz.getLocation(device);
+      } catch (_) {}
+    }
+    return tz.UTC;
+  }
+}
 
 /// Parses a `yyyy-MM-dd` day as noon UTC.
 ///

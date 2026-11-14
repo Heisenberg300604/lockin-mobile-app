@@ -26,6 +26,7 @@ import '../../../core/providers.dart';
 import '../../../core/utils/haptics.dart';
 import '../../auth/application/session_controller.dart';
 import '../data/commitment_repository.dart';
+import '../data/local_commitment_repository.dart';
 import '../data/remote_commitment_repository.dart';
 import '../domain/models.dart';
 
@@ -38,6 +39,15 @@ final commitmentRepositoryProvider = Provider<CommitmentRepository>((ref) {
     // sign-out redirect is underway. Returning an inert repository keeps that
     // transient state from becoming an uncaught provider error.
     return const _SignedOutCommitmentRepository();
+  }
+  if (identity.mode == IdentityMode.device) {
+    // "Continue on this device" (a local test mode, off in store builds):
+    // there is no Clerk token, so data stays on the phone.
+    return LocalCommitmentRepository(
+      store: ref.watch(keyValueStoreProvider),
+      storageKey: 'lockin.data.v1.${identity.key}',
+      clock: ref.watch(clockProvider),
+    );
   }
   return RemoteCommitmentRepository(
     api: ref.watch(apiClientProvider),
@@ -60,7 +70,22 @@ class _SignedOutCommitmentRepository implements CommitmentRepository {
       _signedOut();
 
   @override
-  Future<void> fail(Commitment commitment, String date) async => _signedOut();
+  Future<void> fail(
+    Commitment commitment,
+    String date, {
+    String reason = '',
+    String note = '',
+  }) async => _signedOut();
+
+  @override
+  Future<Commitment> updateReward(Commitment commitment, String reward) async =>
+      _signedOut();
+
+  @override
+  Future<void> delete(Commitment commitment) async => _signedOut();
+
+  @override
+  Future<void> updateDisplayName(String displayName) async => _signedOut();
 
   @override
   Future<void> log(Commitment commitment, String date, int count) async =>
@@ -252,9 +277,47 @@ class CommitmentsController extends Notifier<CommitmentsState> {
   /// Resumes [c].
   Future<void> resume(Commitment c) => _transition(() => _repository.resume(c));
 
-  /// Records a missed day.
-  Future<void> fail(Commitment c, String date) =>
-      _transition(() => _repository.fail(c, date), warning: true);
+  /// Records that a quit commitment broke on [date], with the user's reason.
+  Future<void> fail(
+    Commitment c,
+    String date, {
+    String reason = '',
+    String note = '',
+  }) => _transition(
+    () => _repository.fail(c, date, reason: reason, note: note),
+    warning: true,
+  );
+
+  /// Changes the reward of an active commitment.
+  Future<void> updateReward(Commitment c, String reward) =>
+      _transition(() => _repository.updateReward(c, reward));
+
+  /// Permanently deletes a commitment and its history.
+  Future<void> delete(Commitment c) async {
+    try {
+      await _repository.delete(c);
+      ref.read(hapticsProvider).warning();
+      if (ref.mounted) {
+        // Drop it at once so screens never show a deleted record.
+        state = state.copyWith(
+          snapshot: state.snapshot.copyWith(
+            commitments: state.snapshot.commitments
+                .where((x) => x.id != c.id)
+                .toList(),
+            checkIns: state.snapshot.checkIns
+                .where((l) => l.attemptId != c.attemptId)
+                .toList(),
+          ),
+        );
+      }
+    } finally {
+      await refresh();
+    }
+  }
+
+  /// Saves the account's display name.
+  Future<void> updateDisplayName(String name) =>
+      _transition(() => _repository.updateDisplayName(name));
 
   /// Restarts a broken attempt; returns the new attempt.
   Future<Commitment> restart(

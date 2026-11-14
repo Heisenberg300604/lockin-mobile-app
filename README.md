@@ -207,7 +207,7 @@ Use the constants in [`lib/core/theme/app_colors.dart`](lib/core/theme/app_color
 
 The Flutter client includes `RemoteCommitmentRepository` and an authenticated `ApiClient`; the REST API is the commitment data source when using the configured backend. The client obtains a fresh Clerk token for requests and handles transient network failures with a retry.
 
-The mobile client also reflects current API limitations. In particular, the documented API supports a check-in for the commitment's current time-zone date, and restart is implemented as a new server commitment because the API does not expose a persisted attempt-link/restart endpoint. Some legacy catch-up/count-based interactions therefore cannot be represented as if the server saved them. Review [`docs/BACKEND_INTEGRATION.md`](docs/BACKEND_INTEGRATION.md) before modifying these flows.
+The mobile client follows the same rules as the LockIn web app: kept days can be logged for today or backfilled for the previous two days, quit habits record a reason and note when they break, and weekly/monthly targets must be achievable in every (possibly partial) period. Restart is implemented as a new server commitment because the API does not expose a restart endpoint. Review [`docs/BACKEND_INTEGRATION.md`](docs/BACKEND_INTEGRATION.md) before modifying these flows.
 
 ## Documentation
 

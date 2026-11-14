@@ -3,6 +3,7 @@ library;
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../../core/motion/motion_widgets.dart';
 import '../../../../core/theme/app_colors.dart';
@@ -14,8 +15,26 @@ import '../../../../core/widgets/status_widgets.dart';
 import '../../../../core/widgets/tappable.dart';
 import '../../../../core/widgets/typography.dart';
 import '../../application/commitments_controller.dart';
+import '../../domain/api_progress.dart';
 import '../../domain/models.dart';
 import '../../domain/schedule.dart';
+import 'log_modal.dart';
+
+/// Opens the check-in dialog for [date] when the server will still accept
+/// it, otherwise the commitment's detail screen.
+void openCheckIn(
+  BuildContext context,
+  WidgetRef ref,
+  Commitment c,
+  String date,
+) {
+  final data = ref.read(commitmentsProvider);
+  if (canApiCheckIn(c, data.snapshot.checkIns, date, data.now)) {
+    showLogModal(context, LogSelection(c, date));
+  } else {
+    context.push('/commitment/${c.id}');
+  }
+}
 
 /// A tappable tracking row. Opens the log dialog via [onPressed].
 class TrackingRow extends ConsumerWidget {
@@ -42,10 +61,29 @@ class TrackingRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final checkIns = ref.watch(commitmentsProvider.select((s) => s.snapshot.checkIns));
-    final p = progress(commitment, checkIns, date);
-    final weekly = commitment.pace is WeeklyPace;
-    final caption = catchUp ? 'Catch up · ${formatShortDate(date)}' : paceLabel(commitment.pace);
+    final checkIns = ref.watch(
+      commitmentsProvider.select((s) => s.snapshot.checkIns),
+    );
+    final now = ref.watch(commitmentsProvider.select((s) => s.now));
+    // Progress of the API rule period containing [date]; the tick shows
+    // whether [date] itself is logged as kept.
+    final period = apiProgress(commitment, checkIns, now, onDate: date);
+    final entry = apiCheckInOn(checkIns, commitment, date);
+    final p = (
+      count: period.periodProgress,
+      target: period.periodTarget,
+      done: entry?.outcome == CheckInOutcome.success,
+    );
+    final suffix = switch (commitment.pace) {
+      WeeklyPace() || CustomPace() => ' wk',
+      MonthlyPace() => ' mo',
+      _ => '',
+    };
+    final caption = catchUp
+        ? 'Not logged · ${formatShortDate(date)} · tap to backfill'
+        : entry?.outcome == CheckInOutcome.missed
+        ? 'Broken today'
+        : paceLabel(commitment.pace);
 
     return MotionView(
       layout: true,
@@ -85,7 +123,10 @@ class TrackingRow extends ConsumerWidget {
                             ),
                             Expanded(
                               flex: 23,
-                              child: Label('${p.count}/${p.target}${weekly ? ' wk' : ''}', size: 10),
+                              child: Label(
+                                '${p.count}/${p.target}$suffix',
+                                size: 10,
+                              ),
                             ),
                           ],
                         ),
@@ -101,16 +142,24 @@ class TrackingRow extends ConsumerWidget {
                     height: 15,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: p.done ? AppColors.successForeground : AppColors.surfaceInput,
+                      color: p.done
+                          ? AppColors.successForeground
+                          : AppColors.surfaceInput,
                       border: Border.all(
-                        color: p.done ? AppColors.successForeground : AppColors.placeholder,
+                        color: p.done
+                            ? AppColors.successForeground
+                            : AppColors.placeholder,
                       ),
                     ),
                     child: p.done
                         ? const OverflowBox(
                             maxWidth: 12,
                             maxHeight: 12,
-                            child: AppIcon(Feather.check, size: 12, color: AppColors.onDark),
+                            child: AppIcon(
+                              Feather.check,
+                              size: 12,
+                              color: AppColors.onDark,
+                            ),
                           )
                         : null,
                   ),

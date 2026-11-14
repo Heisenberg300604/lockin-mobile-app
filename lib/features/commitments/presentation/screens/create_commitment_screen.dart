@@ -36,6 +36,7 @@ import '../../../../core/widgets/typography.dart';
 import '../../../auth/application/session_controller.dart';
 import '../../application/commitments_controller.dart';
 import '../../data/draft_store.dart';
+import '../../domain/api_progress.dart';
 import '../../domain/models.dart';
 import '../../domain/schedule.dart';
 import '../../domain/validation.dart';
@@ -58,7 +59,12 @@ const _actions = [
   'LOCK IN COMMITMENT →',
   'CONFIRM & LOCK',
 ];
-const _rewards = ['A Good Coffee', 'Favorite Meal', 'Watch a movie', 'Take a Nap'];
+const _rewards = [
+  'A good coffee',
+  'Favorite meal',
+  'Watch a movie',
+  'Take a nap',
+];
 
 /// The creation wizard (`/commitment/new`).
 class CreateCommitmentScreen extends ConsumerStatefulWidget {
@@ -66,10 +72,12 @@ class CreateCommitmentScreen extends ConsumerStatefulWidget {
   const CreateCommitmentScreen({super.key});
 
   @override
-  ConsumerState<CreateCommitmentScreen> createState() => _CreateCommitmentScreenState();
+  ConsumerState<CreateCommitmentScreen> createState() =>
+      _CreateCommitmentScreenState();
 }
 
-class _CreateCommitmentScreenState extends ConsumerState<CreateCommitmentScreen> {
+class _CreateCommitmentScreenState
+    extends ConsumerState<CreateCommitmentScreen> {
   late Draft _draft = freshDraft();
   int _step = 1;
   int _direction = 1; // 1 = moving forward, -1 = back (drives the slide)
@@ -95,7 +103,10 @@ class _CreateCommitmentScreenState extends ConsumerState<CreateCommitmentScreen>
   void initState() {
     super.initState();
     final identity = ref.read(sessionProvider).identity!;
-    _drafts = DraftStore(ref.read(keyValueStoreProvider), 'lockin.draft.${identity.key}');
+    _drafts = DraftStore(
+      ref.read(keyValueStoreProvider),
+      'lockin.draft.${identity.key}',
+    );
     unawaited(_restore());
   }
 
@@ -109,7 +120,10 @@ class _CreateCommitmentScreenState extends ConsumerState<CreateCommitmentScreen>
       saved = await _drafts.load();
     } catch (_) {
       if (mounted) {
-        setState(() => _error = 'Your previous draft could not be restored. You can start a new one.');
+        setState(
+          () => _error =
+              'Your previous draft could not be restored. You can start a new one.',
+        );
       }
     }
     if (!mounted) return;
@@ -125,9 +139,18 @@ class _CreateCommitmentScreenState extends ConsumerState<CreateCommitmentScreen>
         title: 'Your promise is waiting',
         onClose: () => Navigator.of(context).pop('leave'),
         children: [
-          const Label('Continue where you left off, or begin a new commitment.'),
-          LockButton(title: 'CONTINUE DRAFT', onPressed: () => Navigator.of(context).pop('continue')),
-          LockButton(light: true, title: 'Start new', onPressed: () => Navigator.of(context).pop('new')),
+          const Label(
+            'Continue where you left off, or begin a new commitment.',
+          ),
+          LockButton(
+            title: 'CONTINUE DRAFT',
+            onPressed: () => Navigator.of(context).pop('continue'),
+          ),
+          LockButton(
+            light: true,
+            title: 'Start new',
+            onPressed: () => Navigator.of(context).pop('new'),
+          ),
         ],
       ),
     );
@@ -156,10 +179,21 @@ class _CreateCommitmentScreenState extends ConsumerState<CreateCommitmentScreen>
 
   void _persist() {
     if (!_ready || _finished) return;
-    final snapshot = SavedDraft(draft: _draft, step: _step, requestId: _requestId);
-    _writes = _writes.catchError((Object _) {}).then((_) => _drafts.save(snapshot)).catchError((Object _) {
-      if (mounted) setState(() => _error = 'Your draft could not be saved on this device.');
-    });
+    final snapshot = SavedDraft(
+      draft: _draft,
+      step: _step,
+      requestId: _requestId,
+    );
+    _writes = _writes
+        .catchError((Object _) {})
+        .then((_) => _drafts.save(snapshot))
+        .catchError((Object _) {
+          if (mounted) {
+            setState(
+              () => _error = 'Your draft could not be saved on this device.',
+            );
+          }
+        });
   }
 
   void _syncDates() {
@@ -208,8 +242,12 @@ class _CreateCommitmentScreenState extends ConsumerState<CreateCommitmentScreen>
       case 1:
         if (_draft.path == null) problem = 'Choose Build or Quit to continue.';
       case 2:
-        if (_draft.name.trim().isEmpty || _draft.name.trim().length > 80 || _draft.description.length > 300) {
-          problem = 'Enter a target up to 80 characters and a description up to 300.';
+        if (_draft.name.trim().isEmpty) {
+          problem = 'Give this commitment a name before continuing.';
+        } else if (_draft.name.trim().length > maxNameLength ||
+            _draft.description.length > maxDescriptionLength) {
+          problem =
+              'Enter a target up to $maxNameLength characters and a description up to $maxDescriptionLength.';
         }
       case 3:
         if (!isValidDate(_draft.startDate) ||
@@ -219,13 +257,21 @@ class _CreateCommitmentScreenState extends ConsumerState<CreateCommitmentScreen>
           problem = 'Choose today or later, with a duration of 1–365 days.';
         }
       case 4:
-        problem = validateDraft(
-          _draft.reward.isEmpty ? _draft.copyWith(reward: 'Reward') : _draft,
-        );
+        _forceQuitDaily();
+        problem =
+            validateDraft(
+              _draft.reward.isEmpty
+                  ? _draft.copyWith(reward: 'Reward')
+                  : _draft,
+            ) ??
+            _feasibility();
       case 5:
-        if (_draft.reward.trim().isEmpty) problem = 'Choose or enter your reward.';
+        if (_draft.reward.trim().isEmpty) {
+          problem = 'Choose or enter your reward.';
+        }
       case 6:
-        problem = validateDraft(_draft);
+        _forceQuitDaily();
+        problem = validateDraft(_draft) ?? _feasibility();
     }
     if (problem != null) {
       setState(() => _error = problem!);
@@ -241,6 +287,23 @@ class _CreateCommitmentScreenState extends ConsumerState<CreateCommitmentScreen>
       _persist();
     }
   }
+
+  /// Quit commitments are always "every day" on the API.
+  void _forceQuitDaily() {
+    final pace = _draft.pace;
+    if (_draft.path == HabitPath.quit &&
+        !(pace is DailyPace && pace.count == 1)) {
+      _update((d) => d.copyWith(pace: const DailyPace(1)));
+    }
+  }
+
+  /// The server rejects a target that cannot be met in some (possibly
+  /// partial) week or month of the timeline; say so before locking.
+  String? _feasibility() => apiFeasibilityError(
+    startDate: _draft.startDate,
+    duration: _draft.duration,
+    pace: _draft.pace,
+  );
 
   // ---------------------------------------------------------------------------
   // Locking
@@ -266,15 +329,20 @@ class _CreateCommitmentScreenState extends ConsumerState<CreateCommitmentScreen>
       _error = '';
     });
     try {
-      final created = await ref.read(commitmentsProvider.notifier).create(_draft, _requestId);
+      final created = await ref
+          .read(commitmentsProvider.notifier)
+          .create(_draft, _requestId);
       _finished = true;
       await _writes.catchError((Object _) {});
       await _drafts.clear().catchError((Object _) {});
       return created;
     } catch (e) {
       if (mounted) {
-        setState(() => _error =
-            e is LockInException ? e.message : 'Your commitment was not saved. Please retry.');
+        setState(
+          () => _error = e is LockInException
+              ? e.message
+              : 'Your commitment was not saved. Please retry.',
+        );
       }
       rethrow;
     } finally {
@@ -293,10 +361,18 @@ class _CreateCommitmentScreenState extends ConsumerState<CreateCommitmentScreen>
         _start.compareTo(dateInZone(DateTime.now())) < 0 ||
         _end.compareTo(_start) < 0 ||
         dayDifference(_start, _end) >= 365) {
-      setState(() => _editorError = 'Select a valid range of 1–365 days starting today or later.');
+      setState(
+        () => _editorError =
+            'Select a valid range of 1–365 days starting today or later.',
+      );
       return;
     }
-    _update((d) => d.copyWith(startDate: _start, duration: dayDifference(_start, _end) + 1));
+    _update(
+      (d) => d.copyWith(
+        startDate: _start,
+        duration: dayDifference(_start, _end) + 1,
+      ),
+    );
     setState(() {
       _editingDates = false;
       _step = 4;
@@ -374,7 +450,12 @@ class _CreateCommitmentScreenState extends ConsumerState<CreateCommitmentScreen>
                         child: Transform.translate(
                           offset: reduced
                               ? Offset.zero
-                              : Offset((1 - animation.value) * 16 * (incoming ? _direction : -_direction), 0),
+                              : Offset(
+                                  (1 - animation.value) *
+                                      16 *
+                                      (incoming ? _direction : -_direction),
+                                  0,
+                                ),
                           child: child,
                         ),
                       ),
@@ -393,14 +474,19 @@ class _CreateCommitmentScreenState extends ConsumerState<CreateCommitmentScreen>
             ),
           ),
           if (_error.isNotEmpty)
-            Padding(padding: const EdgeInsets.only(top: 16), child: ErrorNote(_error)),
+            Padding(
+              padding: const EdgeInsets.only(top: 16),
+              child: ErrorNote(_error),
+            ),
         ],
       ),
     );
   }
 
   Widget _buildStep() {
-    final heading = _step == 3 && _editingDates ? 'Select custom duration' : _titles[_step - 1];
+    final heading = _step == 3 && _editingDates
+        ? 'Select custom duration'
+        : _titles[_step - 1];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -421,57 +507,56 @@ class _CreateCommitmentScreenState extends ConsumerState<CreateCommitmentScreen>
   }
 
   Widget _stepPath() => Padding(
-        padding: const EdgeInsets.only(bottom: 24),
-        child: Column(
-          spacing: 44,
-          children: [
-            ChoiceCard(
-              title: 'Build',
-              description: 'Establish a new positive ritual.',
-              icon: Feather.plusCircle,
-              selected: _draft.path == HabitPath.build,
-              onPressed: () => _update((d) => d.copyWith(path: HabitPath.build)),
-            ),
-            ChoiceCard(
-              title: 'Quit',
-              description: 'Break away from a negative cycle.',
-              icon: Feather.minusCircle,
-              selected: _draft.path == HabitPath.quit,
-              // A quit habit is a single yes/no per day: reset a daily count.
-              onPressed: () => _update(
-                (d) => d.copyWith(
-                  path: HabitPath.quit,
-                  pace: d.pace is DailyPace ? const DailyPace(1) : d.pace,
-                ),
-              ),
-            ),
-          ],
+    padding: const EdgeInsets.only(bottom: 24),
+    child: Column(
+      spacing: 44,
+      children: [
+        ChoiceCard(
+          title: 'Build',
+          description: 'Establish a new positive ritual.',
+          icon: Feather.plusCircle,
+          selected: _draft.path == HabitPath.build,
+          onPressed: () => _update((d) => d.copyWith(path: HabitPath.build)),
         ),
-      );
+        ChoiceCard(
+          title: 'Quit',
+          description: 'Break away from a negative cycle.',
+          icon: Feather.minusCircle,
+          selected: _draft.path == HabitPath.quit,
+          // A quit habit is a single yes/no every day.
+          onPressed: () => _update(
+            (d) => d.copyWith(path: HabitPath.quit, pace: const DailyPace(1)),
+          ),
+        ),
+      ],
+    ),
+  );
 
   Widget _stepTarget() => Padding(
-        padding: const EdgeInsets.only(bottom: 24),
-        child: Column(
-          spacing: 28,
-          children: [
-            AppField(
-              label: 'What is your target?',
-              placeholder: 'e.g., Daily Yoga Practice',
-              value: _draft.name,
-              maxLength: 80,
-              onChanged: (v) => _update((d) => d.copyWith(name: v)),
-            ),
-            AppField(
-              label: 'Description (Optional)',
-              placeholder: 'Any specific details...',
-              value: _draft.description,
-              multiline: true,
-              maxLength: 300,
-              onChanged: (v) => _update((d) => d.copyWith(description: v)),
-            ),
-          ],
+    padding: const EdgeInsets.only(bottom: 24),
+    child: Column(
+      spacing: 28,
+      children: [
+        AppField(
+          label: 'What is your target?',
+          placeholder: _draft.path == HabitPath.quit
+              ? 'e.g., No Fast Food'
+              : 'e.g., Daily Yoga Practice',
+          value: _draft.name,
+          maxLength: maxNameLength,
+          onChanged: (v) => _update((d) => d.copyWith(name: v)),
         ),
-      );
+        AppField(
+          label: 'Description (Optional)',
+          placeholder: 'Any specific details...',
+          value: _draft.description,
+          multiline: true,
+          maxLength: maxDescriptionLength,
+          onChanged: (v) => _update((d) => d.copyWith(description: v)),
+        ),
+      ],
+    ),
+  );
 
   Widget _stepDuration() {
     final today = dateInZone(DateTime.now());
@@ -492,8 +577,11 @@ class _CreateCommitmentScreenState extends ConsumerState<CreateCommitmentScreen>
                   child: LockButton(
                     light: true,
                     title: '$days days',
-                    selected: _draft.duration == days && _draft.startDate == today,
-                    onPressed: () => _update((d) => d.copyWith(duration: days, startDate: today)),
+                    selected:
+                        _draft.duration == days && _draft.startDate == today,
+                    onPressed: () => _update(
+                      (d) => d.copyWith(duration: days, startDate: today),
+                    ),
                   ),
                 ),
             ],
@@ -509,62 +597,89 @@ class _CreateCommitmentScreenState extends ConsumerState<CreateCommitmentScreen>
               _editingDates = true;
             }),
           ),
-          Label('${formatDate(_draft.startDate)} – ${formatDate(draftEndDate(_draft))}', size: 12, muted: true),
+          Label(
+            '${formatDate(_draft.startDate)} – ${formatDate(draftEndDate(_draft))}',
+            size: 12,
+            muted: true,
+          ),
         ],
       ),
     );
   }
 
   Widget _stepCustomDates() => Padding(
-        padding: const EdgeInsets.only(bottom: 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          spacing: 20,
+    padding: const EdgeInsets.only(bottom: 24),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      spacing: 20,
+      children: [
+        Row(
+          spacing: 12,
           children: [
-            Row(
-              spacing: 12,
-              children: [
-                Expanded(
-                  child: LockButton(
-                    light: true,
-                    title: formatShortDate(_start),
-                    selected: !_pickingEnd,
-                    onPressed: () => setState(() => _pickingEnd = false),
-                  ),
-                ),
-                Expanded(
-                  child: LockButton(
-                    light: true,
-                    title: formatShortDate(_end),
-                    selected: _pickingEnd,
-                    onPressed: () => setState(() => _pickingEnd = true),
-                  ),
-                ),
-              ],
+            Expanded(
+              child: LockButton(
+                light: true,
+                title: formatShortDate(_start),
+                selected: !_pickingEnd,
+                onPressed: () => setState(() => _pickingEnd = false),
+              ),
             ),
-            Label('Select ${_pickingEnd ? 'end' : 'start'} date', size: 12, muted: true),
-            CalendarView(
-              selected: _pickingEnd ? _end : _start,
-              rangeStart: _start,
-              rangeEnd: _end,
-              onSelect: (date) => setState(() {
-                if (!_pickingEnd) {
-                  _start = date;
-                  if (date.compareTo(_end) > 0) _end = date;
-                  _pickingEnd = true;
-                } else {
-                  _end = date;
-                }
-                _editorError = '';
-              }),
+            Expanded(
+              child: LockButton(
+                light: true,
+                title: formatShortDate(_end),
+                selected: _pickingEnd,
+                onPressed: () => setState(() => _pickingEnd = true),
+              ),
             ),
-            if (_editorError.isNotEmpty) ErrorNote(_editorError),
           ],
         ),
-      );
+        Label(
+          'Select ${_pickingEnd ? 'end' : 'start'} date',
+          size: 12,
+          muted: true,
+        ),
+        CalendarView(
+          selected: _pickingEnd ? _end : _start,
+          rangeStart: _start,
+          rangeEnd: _end,
+          onSelect: (date) => setState(() {
+            if (!_pickingEnd) {
+              _start = date;
+              if (date.compareTo(_end) > 0) _end = date;
+              _pickingEnd = true;
+            } else {
+              _end = date;
+            }
+            _editorError = '';
+          }),
+        ),
+        if (_editorError.isNotEmpty) ErrorNote(_editorError),
+      ],
+    ),
+  );
 
   Widget _stepPace() {
     final pace = _draft.pace;
+    if (_draft.path == HabitPath.quit) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 24),
+        child: AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            spacing: 8,
+            children: [
+              const Label('Every day', size: 17, bold: true),
+              Label(
+                'Success means staying consistent every day until '
+                '${formatDate(draftEndDate(_draft))}.',
+                muted: true,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.only(bottom: 24),
       child: Column(
@@ -573,24 +688,33 @@ class _CreateCommitmentScreenState extends ConsumerState<CreateCommitmentScreen>
         children: [
           ChoiceCard(
             compact: true,
-            title: 'Everyday',
-            description: 'No days off. Build relentless momentum.',
+            title: 'Every day',
+            description: 'One successful check-in is needed each day.',
             icon: Feather.calendar,
-            selected: pace is DailyPace && pace.count == 1,
-            onPressed: () => _update((d) => d.copyWith(pace: const DailyPace(1))),
+            selected: pace is DailyPace,
+            onPressed: () =>
+                _update((d) => d.copyWith(pace: const DailyPace(1))),
           ),
           ChoiceCard(
             compact: true,
-            title: 'Flexible Pace',
-            description: 'Set a target, e.g., 3 times a week.',
+            title: 'Flexible weekly pace',
+            description: 'Reach a minimum target anytime during the week.',
             icon: Feather.sliders,
-            selected: pace is WeeklyPace || (pace is DailyPace && pace.count > 1),
-            onPressed: () => _openPaceEditor(PaceEditorMode.flexible),
+            selected: pace is WeeklyPace,
+            onPressed: () => _openPaceEditor(PaceEditorMode.weekly),
           ),
           ChoiceCard(
             compact: true,
-            title: 'Custom Days',
-            description: 'Pick specific days of the week.',
+            title: 'Flexible monthly pace',
+            description: 'Reach a minimum target anytime during the month.',
+            icon: Feather.sliders,
+            selected: pace is MonthlyPace,
+            onPressed: () => _openPaceEditor(PaceEditorMode.monthly),
+          ),
+          ChoiceCard(
+            compact: true,
+            title: 'Fixed weekly schedule',
+            description: 'Pick the exact weekdays that are required.',
             icon: Feather.checkSquare,
             selected: pace is CustomPace,
             onPressed: () => _openPaceEditor(PaceEditorMode.customDays),
@@ -602,37 +726,37 @@ class _CreateCommitmentScreenState extends ConsumerState<CreateCommitmentScreen>
   }
 
   Widget _stepReward() => Padding(
-        padding: const EdgeInsets.only(bottom: 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          spacing: 30,
+    padding: const EdgeInsets.only(bottom: 24),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      spacing: 30,
+      children: [
+        Wrap(
+          spacing: 14,
+          runSpacing: 14,
           children: [
-            Wrap(
-              spacing: 14,
-              runSpacing: 14,
-              children: [
-                for (final reward in _rewards)
-                  FractionallySizedBox(
-                    widthFactor: 0.46,
-                    child: LockButton(
-                      light: true,
-                      title: reward,
-                      selected: _draft.reward == reward,
-                      onPressed: () => _update((d) => d.copyWith(reward: reward)),
-                    ),
-                  ),
-              ],
-            ),
-            AppField(
-              semanticLabel: 'Custom reward',
-              placeholder: 'Or type a custom reward...',
-              value: _rewards.contains(_draft.reward) ? '' : _draft.reward,
-              maxLength: 120,
-              onChanged: (v) => _update((d) => d.copyWith(reward: v)),
-            ),
+            for (final reward in _rewards)
+              FractionallySizedBox(
+                widthFactor: 0.46,
+                child: LockButton(
+                  light: true,
+                  title: reward,
+                  selected: _draft.reward == reward,
+                  onPressed: () => _update((d) => d.copyWith(reward: reward)),
+                ),
+              ),
           ],
         ),
-      );
+        AppField(
+          semanticLabel: 'Custom reward',
+          placeholder: 'Or type a custom reward...',
+          value: _rewards.contains(_draft.reward) ? '' : _draft.reward,
+          maxLength: maxRewardLength,
+          onChanged: (v) => _update((d) => d.copyWith(reward: v)),
+        ),
+      ],
+    ),
+  );
 
   Widget _stepReview() {
     final rows = [
@@ -641,10 +765,14 @@ class _CreateCommitmentScreenState extends ConsumerState<CreateCommitmentScreen>
         'TOTAL DURATION',
         '${_draft.duration} Days (${formatDate(_draft.startDate)} – ${formatDate(draftEndDate(_draft))})',
       ),
-      ('EXECUTION PACE', paceLabel(_draft.pace)),
+      (
+        'EXECUTION PACE',
+        _draft.path == HabitPath.quit
+            ? 'Everyday consistency'
+            : paceLabel(_draft.pace),
+      ),
       ('LOCKED MOTIVATION', _draft.reward),
     ];
-    final weekly = _draft.pace;
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Column(
@@ -658,16 +786,6 @@ class _CreateCommitmentScreenState extends ConsumerState<CreateCommitmentScreen>
             ),
             if (i < rows.length - 1) const AppDivider(),
           ],
-          if (weekly is WeeklyPace && _draft.duration % 7 != 0)
-            Padding(
-              padding: const EdgeInsets.only(top: 16),
-              child: Label(
-                'Final ${_draft.duration % 7}-day period: '
-                '${(weekly.count * (_draft.duration % 7) + 6) ~/ 7} successful days required.',
-                size: 12,
-                muted: true,
-              ),
-            ),
         ],
       ),
     );
@@ -701,24 +819,33 @@ class _LockConfirmModalState extends State<_LockConfirmModal> {
 
   @override
   Widget build(BuildContext context) => ModalCard(
-        title: 'Lock this commitment?',
-        busy: _busy,
+    title: 'Lock this commitment?',
+    busy: _busy,
+    children: [
+      const Label(
+        'This will finalize your rules and start the timeline.',
+        muted: true,
+      ),
+      Row(
+        spacing: 16,
         children: [
-          const Label('This will finalize your rules and start the timeline.', muted: true),
-          Row(
-            spacing: 16,
-            children: [
-              Expanded(
-                child: LockButton(
-                  light: true,
-                  title: 'GO BACK',
-                  disabled: _busy,
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-              ),
-              Expanded(child: LockButton(title: 'YES, LOCK IT', loading: _busy, onPressed: _lock)),
-            ],
+          Expanded(
+            child: LockButton(
+              light: true,
+              title: 'GO BACK',
+              disabled: _busy,
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ),
+          Expanded(
+            child: LockButton(
+              title: 'YES, LOCK IT',
+              loading: _busy,
+              onPressed: _lock,
+            ),
           ),
         ],
-      );
+      ),
+    ],
+  );
 }

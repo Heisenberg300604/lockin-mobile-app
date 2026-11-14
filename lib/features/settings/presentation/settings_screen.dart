@@ -21,6 +21,7 @@ import '../../../core/widgets/modal_card.dart';
 import '../../../core/widgets/status_widgets.dart';
 import '../../../core/widgets/typography.dart';
 import '../../auth/application/session_controller.dart';
+import '../../commitments/application/commitments_controller.dart';
 import '../../commitments/domain/models.dart';
 import '../../reminders/application/reminder_providers.dart';
 import '../application/preferences_controller.dart';
@@ -36,6 +37,9 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late String _time = ref.read(preferencesProvider).preferences.reminderTime;
+  String? _name; // the display-name draft; null until the user edits it
+  bool _savingProfile = false;
+  String _profileMessage = '';
   bool _saving = false;
   String _message = '';
   String _error = '';
@@ -52,8 +56,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await action();
     } catch (e) {
       if (mounted) {
-        setState(() => _error =
-            e is LockInException ? e.message : 'Your preference was not saved. Please retry.');
+        setState(
+          () => _error = e is LockInException
+              ? e.message
+              : 'Your preference was not saved. Please retry.',
+        );
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -61,13 +68,42 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _toggleReminders(bool enabled) => _save(() async {
-        final service = ref.read(notificationServiceProvider);
-        if (enabled && !await service.permission(request: true)) {
-          throw const LockInException('Allow notifications in your device settings, then try again.');
-        }
-        if (!enabled) await ref.read(reminderSchedulerProvider).sync(const []);
-        await ref.read(preferencesProvider.notifier).update(reminders: enabled);
-      });
+    final service = ref.read(notificationServiceProvider);
+    if (enabled && !await service.permission(request: true)) {
+      throw const LockInException(
+        'Allow notifications in your device settings, then try again.',
+      );
+    }
+    if (!enabled) await ref.read(reminderSchedulerProvider).sync(const []);
+    await ref.read(preferencesProvider.notifier).update(reminders: enabled);
+  });
+
+  Future<void> _saveProfile(String name) async {
+    if (_savingProfile) return;
+    setState(() {
+      _savingProfile = true;
+      _profileMessage = '';
+    });
+    try {
+      await ref.read(commitmentsProvider.notifier).updateDisplayName(name);
+      if (mounted) {
+        setState(() {
+          _name = null;
+          _profileMessage = 'Profile saved to your account.';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(
+          () => _profileMessage = e is LockInException
+              ? e.message
+              : 'Profile could not be saved.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _savingProfile = false);
+    }
+  }
 
   Future<void> _confirmSignOut(bool device) async {
     await showAppModal<void>(
@@ -86,6 +122,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final status = ref.watch(reminderStatusProvider);
     final device = identity?.mode == IdentityMode.device;
     final controller = ref.read(preferencesProvider.notifier);
+    final serverName = ref.watch(
+      commitmentsProvider.select((s) => s.snapshot.displayName),
+    );
+    final savedName = serverName ?? identity?.name ?? '';
+    final name = _name ?? savedName;
 
     return AppScreen(
       header: const AppHeader(),
@@ -109,14 +150,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         Label(
                           device
                               ? 'On this device'
-                              : (identity?.name.isNotEmpty ?? false)
-                                  ? identity!.name
-                                  : 'Your account',
+                              : savedName.isNotEmpty
+                              ? savedName
+                              : 'Your account',
                           bold: true,
                           size: 19,
                         ),
                         Label(
-                          identity?.email ?? (device ? 'Saved locally. No account required.' : 'Signed in'),
+                          identity?.email ??
+                              (device
+                                  ? 'Saved locally. No account required.'
+                                  : 'Signed in'),
                           size: 13,
                           muted: true,
                         ),
@@ -126,10 +170,44 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ],
               ),
               const AppDivider(),
+              if (!device) ...[
+                const Label('Account profile', bold: true),
+                const SizedBox(height: 12),
+                AppField(
+                  label: 'Display name',
+                  value: name,
+                  maxLength: 80,
+                  enabled: !_savingProfile,
+                  onChanged: (v) => setState(() => _name = v),
+                ),
+                const SizedBox(height: 16),
+                AppField(
+                  label: 'Email',
+                  value: identity?.email ?? '',
+                  enabled: false,
+                  onChanged: (_) {},
+                ),
+                const SizedBox(height: 16),
+                LockButton(
+                  title: 'SAVE CHANGES',
+                  loading: _savingProfile,
+                  disabled: name.trim().isEmpty || name.trim() == savedName,
+                  onPressed: () => unawaited(_saveProfile(name)),
+                ),
+                if (_profileMessage.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Semantics(
+                      liveRegion: true,
+                      child: Label(_profileMessage, size: 13),
+                    ),
+                  ),
+                const AppDivider(),
+              ],
               Label(
                 device
                     ? 'Your commitments are stored on this device and are not synced to an account.'
-                    : 'Your commitments are private to your account.',
+                    : 'Commitments, check-ins, and profile updates are saved to your secure LockIn account.',
                 size: 13,
                 muted: true,
               ),
@@ -155,11 +233,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 value: prefs.motion == MotionPreference.reduced,
                 enabled: ready && !_saving,
                 onChanged: (v) => _save(
-                  () => controller.update(motion: v ? MotionPreference.reduced : MotionPreference.system),
+                  () => controller.update(
+                    motion: v
+                        ? MotionPreference.reduced
+                        : MotionPreference.system,
+                  ),
                 ),
               ),
               Label(
-                reduced ? 'Reduced motion is active.' : 'Following your device settings.',
+                reduced
+                    ? 'Reduced motion is active.'
+                    : 'Following your device settings.',
                 muted: true,
                 size: 12,
               ),
@@ -169,7 +253,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 enabled: ready && !_saving,
                 onChanged: (v) => _save(() => controller.update(haptics: v)),
               ),
-              const Label('Gentle feedback for choices and saved progress.', muted: true, size: 12),
+              const Label(
+                'Gentle feedback for choices and saved progress.',
+                muted: true,
+                size: 12,
+              ),
             ],
           ),
         ),
@@ -211,7 +299,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 disabled: !ready,
                 onPressed: () => _save(() async {
                   await controller.update(reminderTime: _time);
-                  if (mounted) setState(() => _message = 'Reminder time saved.');
+                  if (mounted) {
+                    setState(() => _message = 'Reminder time saved.');
+                  }
                 }),
               ),
               if (status.isNotEmpty) Label(status, size: 12, muted: true),
@@ -221,24 +311,33 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 disabled: _saving || !prefs.reminders,
                 onPressed: () => _save(() async {
                   await ref.read(notificationServiceProvider).sendTest();
-                  if (mounted) setState(() => _message = 'Test reminder scheduled in 5 seconds.');
+                  if (mounted) {
+                    setState(
+                      () => _message = 'Test reminder scheduled in 5 seconds.',
+                    );
+                  }
                 }),
               ),
               LockButton(
                 light: true,
                 title: 'REFRESH REMINDERS',
                 disabled: _saving,
-                onPressed: () => ref.read(reminderRevisionProvider.notifier).bump(),
+                onPressed: () =>
+                    ref.read(reminderRevisionProvider.notifier).bump(),
               ),
               LockButton(
                 light: true,
                 title: 'OPEN DEVICE SETTINGS',
                 onPressed: () => unawaited(
-                  AppSettings.openAppSettings(type: AppSettingsType.notification).catchError(
-                    (Object _) {
-                      if (mounted) setState(() => _error = 'Could not open device settings.');
-                    },
-                  ),
+                  AppSettings.openAppSettings(
+                    type: AppSettingsType.notification,
+                  ).catchError((Object _) {
+                    if (mounted) {
+                      setState(
+                        () => _error = 'Could not open device settings.',
+                      );
+                    }
+                  }),
                 ),
               ),
               const Label(
@@ -250,14 +349,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ],
           ),
         ),
-        if (_message.isNotEmpty) Semantics(liveRegion: true, child: Label(_message, size: 13)),
+        if (_message.isNotEmpty)
+          Semantics(liveRegion: true, child: Label(_message, size: 13)),
         if (_error.isNotEmpty) ErrorNote(_error),
         LockButton(
           light: true,
           title: device ? 'LEAVE LOCAL SESSION' : 'SIGN OUT',
           onPressed: () => unawaited(_confirmSignOut(device)),
         ),
-        const Label('LockIn · ${AppConfig.appVersion}', size: 11, muted: true, align: TextAlign.center),
+        const Label(
+          'LockIn · ${AppConfig.appVersion}',
+          size: 11,
+          muted: true,
+          align: TextAlign.center,
+        ),
       ],
     );
   }
@@ -278,15 +383,20 @@ class _SwitchRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(top: 16),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Label(label),
-            _AppSwitch(label: label, value: value, enabled: enabled, onChanged: onChanged),
-          ],
+    padding: const EdgeInsets.only(top: 16),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Label(label),
+        _AppSwitch(
+          label: label,
+          value: value,
+          enabled: enabled,
+          onChanged: onChanged,
         ),
-      );
+      ],
+    ),
+  );
 }
 
 class _AppSwitch extends StatelessWidget {
@@ -304,14 +414,14 @@ class _AppSwitch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Semantics(
-        label: label,
-        child: Switch(
-          value: value,
-          onChanged: enabled ? onChanged : null,
-          activeTrackColor: AppColors.successBackground,
-          activeThumbColor: AppColors.successForeground,
-        ),
-      );
+    label: label,
+    child: Switch(
+      value: value,
+      onChanged: enabled ? onChanged : null,
+      activeTrackColor: AppColors.successBackground,
+      activeThumbColor: AppColors.successForeground,
+    ),
+  );
 }
 
 class _SignOutModal extends ConsumerStatefulWidget {
@@ -348,26 +458,26 @@ class _SignOutModalState extends ConsumerState<_SignOutModal> {
 
   @override
   Widget build(BuildContext context) => ModalCard(
-        title: widget.device ? 'Leave this session?' : 'Sign out?',
-        busy: _busy,
-        children: [
-          Label(
-            widget.device
-                ? 'Your local commitments will remain on this device. Choose Continue on this device to return.'
-                : 'You will need to sign in again to see your commitments.',
-          ),
-          if (_error.isNotEmpty) ErrorNote(_error),
-          LockButton(
-            title: widget.device ? 'LEAVE SESSION' : 'SIGN OUT',
-            loading: _busy,
-            onPressed: () => unawaited(_exit()),
-          ),
-          LockButton(
-            light: true,
-            title: 'STAY HERE',
-            disabled: _busy,
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-        ],
-      );
+    title: widget.device ? 'Leave this session?' : 'Sign out?',
+    busy: _busy,
+    children: [
+      Label(
+        widget.device
+            ? 'Your local commitments will remain on this device. Choose Continue on this device to return.'
+            : 'You will need to sign in again to see your commitments.',
+      ),
+      if (_error.isNotEmpty) ErrorNote(_error),
+      LockButton(
+        title: widget.device ? 'LEAVE SESSION' : 'SIGN OUT',
+        loading: _busy,
+        onPressed: () => unawaited(_exit()),
+      ),
+      LockButton(
+        light: true,
+        title: 'STAY HERE',
+        disabled: _busy,
+        onPressed: () => Navigator.of(context).pop(),
+      ),
+    ],
+  );
 }

@@ -24,7 +24,7 @@ import 'package:lockin/features/auth/data/disabled_auth_gateway.dart';
 import 'package:lockin/features/reminders/application/reminder_providers.dart';
 import 'package:lockin/features/reminders/data/notification_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:timezone/data/latest.dart' as tzdata;
+import 'package:timezone/data/latest_all.dart' as tzdata;
 
 /// The "current time" for every screenshot: 15 June 2026, 10:00 UTC.
 final _now = DateTime.parse('2026-06-15T10:00:00Z');
@@ -288,10 +288,16 @@ void main() {
     await shot(tester, '06_detail_broken');
   });
 
-  testWidgets('reflection', (tester) async {
+  testWidgets('detail paused', (tester) async {
     final router = await boot(tester);
-    unawaited(router.push('/commitment/phone/reflect'));
-    await shot(tester, '07_reflection');
+    unawaited(router.push('/commitment/sugar'));
+    await shot(tester, '07_detail_paused');
+  });
+
+  testWidgets('tracking list', (tester) async {
+    final router = await boot(tester);
+    unawaited(router.push('/tracking'));
+    await shot(tester, '10_tracking');
   });
 
   testWidgets('history', (tester) async {

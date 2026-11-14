@@ -158,8 +158,8 @@ void main() {
       contains('target'),
     );
     expect(
-      validateDraft(validDraft().copyWith(name: 'x' * 81), now),
-      contains('80'),
+      validateDraft(validDraft().copyWith(name: 'x' * 121), now),
+      contains('120'),
     );
   });
 

@@ -1,232 +1,264 @@
-/// The "Daily Log Progress" dialog: record today's result, or a catch-up day.
+/// The check-in dialog, matching the LockIn web app:
 ///
-/// Three layouts, chosen from the commitment's pace:
-/// * numeric (a daily count above 1): a [Counter] and "Apply Changes";
-/// * binary: one big "Done!" / "Stayed Consistent" button;
-/// * both offer a negative outcome that first asks for confirmation, because
-///   for daily paces it ends the attempt.
+/// * **Today** – "Log today's activity?" for a build habit; for a quit habit
+///   "Did you keep your commitment?" with *Yes, kept it* / *No, broken*.
+/// * **Backfill** – an unlogged day inside the two-day window can be logged
+///   as kept ("Log Jun 3 as kept?"). Backfills are always kept.
+/// * **Break** – "Why did it unlock?": a reason and an optional private note
+///   are saved with the broken check-in and end the attempt.
 library;
-
-import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../../core/utils/calendar_date.dart';
-import '../../../../core/widgets/counter.dart';
+import '../../../../core/widgets/app_field.dart';
 import '../../../../core/widgets/feather_icons.dart';
 import '../../../../core/widgets/lock_button.dart';
 import '../../../../core/widgets/modal_card.dart';
 import '../../../../core/widgets/status_widgets.dart';
 import '../../../../core/widgets/typography.dart';
 import '../../application/commitments_controller.dart';
+import '../../domain/api_progress.dart';
 import '../../domain/models.dart';
-import '../../domain/schedule.dart';
 
-/// Which attempt and day the dialog is for.
+/// Which commitment and day the dialog is for.
 class LogSelection {
-  /// Creates a selection.
-  const LogSelection(this.commitment, this.date);
+  /// Creates a selection. With [startWithBreak] a quit habit opens directly
+  /// on the "Why did it unlock?" step.
+  const LogSelection(this.commitment, this.date, {this.startWithBreak = false});
 
-  /// The attempt.
+  /// The commitment.
   final Commitment commitment;
 
   /// The day to log.
   final String date;
+
+  /// Open on the break step (quit habits, today only).
+  final bool startWithBreak;
 }
 
-/// Opens the log dialog for [selection].
-Future<void> showLogModal(BuildContext context, LogSelection selection) {
-  // Captured now because the dialog's own context disappears when it closes,
-  // but we may need to navigate afterwards (to the reflection screen).
-  final router = GoRouter.of(context);
-  return showAppModal<void>(
-    context,
-    builder: (_) => _LogModalBody(selection: selection, router: router),
-  );
-}
+/// The preset reasons offered when a quit habit breaks (web app wording).
+const breakReasons = [
+  'Low energy',
+  'Time crunch',
+  'Lack of focus',
+  'Social plans',
+];
+
+/// Opens the check-in dialog for [selection].
+Future<void> showLogModal(BuildContext context, LogSelection selection) =>
+    showAppModal<void>(
+      context,
+      builder: (_) => _LogModalBody(selection: selection),
+    );
 
 class _LogModalBody extends ConsumerStatefulWidget {
-  const _LogModalBody({required this.selection, required this.router});
+  const _LogModalBody({required this.selection});
 
   final LogSelection selection;
-  final GoRouter router;
 
   @override
   ConsumerState<_LogModalBody> createState() => _LogModalBodyState();
 }
 
 class _LogModalBodyState extends ConsumerState<_LogModalBody> {
-  late int _count;
+  late bool _breaking = widget.selection.startWithBreak;
+  String _reason = breakReasons.first;
+  String _note = '';
   bool _busy = false;
-  bool _confirmFailure = false;
   String _error = '';
 
-  @override
-  void initState() {
-    super.initState();
-    // Start the counter from the saved value. Later background refreshes must
-    // not overwrite what the user is editing, so this runs only once.
-    final data = ref.read(commitmentsProvider);
-    _count =
-        getLog(
-          data.snapshot.checkIns,
-          widget.selection.commitment,
-          widget.selection.date,
-        )?.count ??
-        0;
-  }
-
-  Future<void> _save(Commitment c, int value) async {
+  Future<void> _run(Future<void> Function() action, String fallback) async {
     if (_busy) return;
     setState(() {
       _busy = true;
       _error = '';
     });
     try {
-      await ref
-          .read(commitmentsProvider.notifier)
-          .log(c, widget.selection.date, value);
+      await action();
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       if (mounted) {
-        setState(
-          () => _error = e is LockInException
-              ? e.message
-              : 'Your check-in was not saved. Please retry.',
-        );
+        setState(() => _error = e is LockInException ? e.message : fallback);
       }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  Future<void> _recordFailure(Commitment c) async {
-    if (_busy) return;
-    setState(() {
-      _busy = true;
-      _error = '';
-    });
-    try {
-      await ref
-          .read(commitmentsProvider.notifier)
-          .fail(c, widget.selection.date);
-      if (!mounted) return;
-      Navigator.of(context).pop();
-      if (c.pace is! WeeklyPace) {
-        unawaited(widget.router.push('/commitment/${c.id}/reflect'));
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(
-          () => _error = e is LockInException
-              ? e.message
-              : 'Your outcome was not saved. Please retry.',
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
+  Future<void> _keep(Commitment c) => _run(
+    () =>
+        ref.read(commitmentsProvider.notifier).log(c, widget.selection.date, 1),
+    'Unable to record this check-in. Please retry.',
+  );
+
+  Future<void> _break(Commitment c) => _run(
+    () => ref
+        .read(commitmentsProvider.notifier)
+        .fail(c, widget.selection.date, reason: _reason, note: _note),
+    'Unable to record this check-in. Please retry.',
+  );
 
   @override
   Widget build(BuildContext context) {
     final data = ref.watch(commitmentsProvider);
     final date = widget.selection.date;
-    // Use the freshest copy of the commitment (it may have changed since the
-    // dialog opened), falling back to the one we were given.
+    // Use the freshest copy of the commitment; fall back to the one given.
     final c =
         data.snapshot.commitments
             .where((x) => x.attemptId == widget.selection.commitment.attemptId)
             .firstOrNull ??
         widget.selection.commitment;
-    final enabled = canApiCheckIn(c, date, data.now);
-    final numeric = c.pace is DailyPace && (c.pace as DailyPace).count > 1;
-    final weekly = c.pace is WeeklyPace;
-    final period = weekly ? weeklyPeriod(c, date) : null;
+    final today = dateInZone(data.now, c.timeZone);
+    final backfill = date != today;
     final quit = c.path == HabitPath.quit;
+    // Keep the dialog usable while its own save refreshes the data.
+    final enabled =
+        _busy || canApiCheckIn(c, data.snapshot.checkIns, date, data.now);
 
-    final subtitle = period != null
-        ? '${formatDate(date)}\n${period.required} successful days · '
-              '${formatShortDate(period.start)} – ${formatShortDate(period.end)}'
-        : '${formatDate(date)}\nEvery single day brings you closer to your reward.';
+    final List<Widget> body;
+    final String title;
+    if (_breaking && quit && !backfill) {
+      title = 'Why did it unlock?';
+      body = [
+        const Label('NO JUDGMENT. JUST DATA.', size: 11, muted: true),
+        const Label(
+          'Admitting a slip is part of the process. Your private history will '
+          'record it transparently.',
+        ),
+        for (var row = 0; row < breakReasons.length; row += 2)
+          Row(
+            spacing: 12,
+            children: [
+              for (final r in breakReasons.skip(row).take(2))
+                Expanded(
+                  child: LockButton(
+                    light: true,
+                    title: r,
+                    selected: _reason == r,
+                    disabled: _busy,
+                    onPressed: () => setState(() => _reason = r),
+                  ),
+                ),
+            ],
+          ),
+        AppField(
+          semanticLabel: 'What caused the breach? (optional)',
+          placeholder: 'What caused the breach? (optional)',
+          multiline: true,
+          minHeight: 72,
+          maxLength: 1000,
+          value: _note,
+          enabled: !_busy,
+          onChanged: (v) => setState(() => _note = v),
+        ),
+        const Label(
+          'This ends the current attempt. Your history stays saved, and you can '
+          'restart from the commitment screen.',
+          size: 12,
+          muted: true,
+        ),
+        LockButton(
+          title: 'SECURE LOG',
+          loading: _busy,
+          disabled: !enabled,
+          onPressed: () => _break(c),
+        ),
+        LockButton(
+          light: true,
+          title: 'KEEP GOING',
+          disabled: _busy,
+          onPressed: () => widget.selection.startWithBreak
+              ? Navigator.of(context).pop()
+              : setState(() => _breaking = false),
+        ),
+      ];
+    } else if (backfill) {
+      title = 'Log ${formatDate(date)} as kept?';
+      body = [
+        const Label('HONEST PROGRESS', size: 11, muted: true),
+        Label(c.name, size: 20, bold: true),
+        const Label(
+          'This saves the completed commitment for that date in your permanent '
+          'history. It will show as logged late.',
+        ),
+        _actions(c, confirm: 'YES, LOG IT', enabled: enabled),
+      ];
+    } else if (quit) {
+      title = 'Did you keep your commitment?';
+      body = [
+        const Label('HONEST PROGRESS', size: 11, muted: true),
+        Label(c.name, size: 20, bold: true),
+        Label('${formatDate(date)} · Kept or broken — an honest record.'),
+        LockButton(
+          title: 'YES, KEPT IT',
+          icon: Feather.check,
+          loading: _busy,
+          disabled: !enabled,
+          onPressed: () => _keep(c),
+        ),
+        LockButton(
+          light: true,
+          title: 'NO, BROKEN',
+          icon: Feather.x,
+          disabled: !enabled || _busy,
+          onPressed: () => setState(() => _breaking = true),
+        ),
+      ];
+    } else {
+      title = "Log today's activity?";
+      body = [
+        const Label('HONEST PROGRESS', size: 11, muted: true),
+        Label(c.name, size: 20, bold: true),
+        const Label(
+          'This records today as kept in your permanent commitment history. '
+          'Your calendar will update when it is saved.',
+        ),
+        _actions(c, confirm: 'YES, LOG IT', enabled: enabled),
+      ];
+    }
 
     return ModalCard(
-      title: 'Daily Log Progress',
+      title: title,
       busy: _busy,
       children: [
-        Label(c.name, size: 24, bold: true, align: TextAlign.center),
-        Label(subtitle, muted: true, align: TextAlign.center),
-        if (_confirmFailure) ...[
-          Label(
-            weekly
-                ? 'Record this date as missed? Your weekly commitment continues until its quota deadline.'
-                : 'This will end this attempt now. Your history stays saved, and you can reflect and start again.',
-          ),
-          LockButton(
-            title: weekly ? 'CONFIRM MISSED DAY' : 'CONFIRM & END ATTEMPT',
-            onPressed: () => _recordFailure(c),
-            loading: _busy,
-            disabled: !enabled,
-          ),
-          LockButton(
-            light: true,
-            title: 'KEEP GOING',
-            onPressed: () => setState(() => _confirmFailure = false),
-            disabled: _busy,
-          ),
-        ] else ...[
-          if (numeric) ...[
-            Counter(
-              value: _count,
-              max: targetForDate(c),
-              onChanged: (v) => setState(() => _count = v),
-            ),
-            Label(
-              'of ${targetForDate(c)} today',
-              size: 12,
-              muted: true,
-              align: TextAlign.center,
-            ),
-            LockButton(
-              title: 'Apply Changes',
-              onPressed: () => _save(c, _count),
-              loading: _busy,
-              disabled: !enabled,
-            ),
-          ] else
-            LockButton(
-              light: true,
-              title: quit ? 'Stayed Consistent' : 'Done!',
-              icon: Feather.check,
-              onPressed: () => _save(c, 1),
-              loading: _busy,
-              disabled: !enabled,
-            ),
-          if (quit)
-            LockButton(
-              light: true,
-              title: weekly ? "Didn't stay consistent" : 'Broke my Commitment',
-              icon: Feather.x,
-              onPressed: () => setState(() => _confirmFailure = true),
-              disabled: !enabled || _busy,
-            ),
-        ],
+        ...body,
         if (_error.isNotEmpty) ErrorNote(_error),
         if (!enabled)
           const Label(
-            'Check-ins are available for today only.',
+            'This day can no longer be logged. Check-ins are open for today and '
+            'the previous two days.',
             size: 12,
             muted: true,
           ),
-        const Label(
-          'LockIn records one server-verified result for today.',
-          size: 11,
-          muted: true,
-          align: TextAlign.center,
-        ),
       ],
     );
   }
+
+  Widget _actions(
+    Commitment c, {
+    required String confirm,
+    required bool enabled,
+  }) => Row(
+    spacing: 16,
+    children: [
+      Expanded(
+        child: LockButton(
+          light: true,
+          title: 'GO BACK',
+          disabled: _busy,
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ),
+      Expanded(
+        child: LockButton(
+          title: confirm,
+          loading: _busy,
+          disabled: !enabled,
+          onPressed: () => _keep(c),
+        ),
+      ),
+    ],
+  );
 }

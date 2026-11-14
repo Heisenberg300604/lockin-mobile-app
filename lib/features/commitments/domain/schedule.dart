@@ -134,32 +134,22 @@ bool canLog(Commitment c, String date, DateTime now) {
       now.millisecondsSinceEpoch < deadline(c, date);
 }
 
-/// Whether the deployed API accepts a check-in. Unlike the legacy local
-/// workflow, the server accepts only one result for the commitment's current
-/// time-zone date; it has no catch-up endpoint.
-bool canApiCheckIn(Commitment c, String date, DateTime now) {
-  final today = dateInZone(now, c.timeZone);
-  return c.status == CommitmentStatus.active &&
-      date == today &&
-      isScheduled(c, date);
-}
-
 /// Repetitions needed on a single day: the daily count, otherwise 1.
 int targetForDate(Commitment c) {
   final pace = c.pace;
   return pace is DailyPace ? pace.count : 1;
 }
 
-/// Human label for a pace, e.g. "Everyday", "3 days per week", "Mon, Wed".
+/// Human label for a pace, worded as on the LockIn web app, e.g.
+/// "Every day", "3 times per week", "Every Mon, Wed", "15 days per month".
 String paceLabel(Pace pace) => switch (pace) {
-  DailyPace(:final count) => count == 1 ? 'Everyday' : '$count times a day',
-  WeeklyPace(:final count) => '$count days per week',
-  CustomPace(:final days) => ([
-    ...days,
-  ]..sort()).map((d) => weekdayNames[d]).join(', '),
+  DailyPace(:final count) => count == 1 ? 'Every day' : '$count times a day',
+  WeeklyPace(:final count) => '$count times per week',
+  CustomPace(:final days) =>
+    'Every ${([...days]..sort()).map((d) => weekdayNames[d]).join(', ')}',
   MonthlyPace(:final count) => '$count days per month',
   WindowPace(:final targetCount, :final windowDays) =>
-    '$targetCount days every $windowDays days',
+    '$targetCount times every $windowDays days',
 };
 
 /// The saved check-in of [c] for [date], or `null`.
@@ -284,21 +274,6 @@ List<DueRow> dueRows(Snapshot snapshot, DateTime now) {
     if (byCreated != 0) return byCreated;
     return a.date.compareTo(b.date);
   });
-  return rows;
-}
-
-/// Today's server-backed tracking rows. Kept separate from [dueRows] so the
-/// legacy local repository remains testable without exposing unsupported
-/// catch-up actions in the production UI.
-List<DueRow> apiDueRows(Snapshot snapshot, DateTime now) {
-  final rows = <DueRow>[];
-  for (final commitment in snapshot.commitments) {
-    final today = dateInZone(now, commitment.timeZone);
-    if (canApiCheckIn(commitment, today, now)) {
-      rows.add(DueRow(commitment: commitment, date: today, catchUp: false));
-    }
-  }
-  rows.sort((a, b) => a.commitment.createdAt.compareTo(b.commitment.createdAt));
   return rows;
 }
 

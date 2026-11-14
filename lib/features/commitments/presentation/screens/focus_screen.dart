@@ -7,7 +7,6 @@
 /// * filtered-empty message (image 25).
 library;
 
-import 'package:flutter/material.dart' show CircularProgressIndicator;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -20,16 +19,16 @@ import '../../../../core/widgets/app_screen.dart';
 import '../../../../core/widgets/containers.dart';
 import '../../../../core/widgets/feather_icons.dart';
 import '../../../../core/widgets/lock_button.dart';
+import '../../../../core/widgets/lock_loader.dart';
 import '../../../../core/widgets/raised_box.dart';
 import '../../../../core/widgets/status_widgets.dart';
 import '../../../../core/widgets/tappable.dart';
 import '../../../../core/widgets/typography.dart';
 import '../../../auth/application/session_controller.dart';
 import '../../application/commitments_controller.dart';
+import '../../domain/api_progress.dart';
 import '../../domain/models.dart';
-import '../../domain/schedule.dart';
 import '../widgets/commitment_card.dart';
-import '../widgets/log_modal.dart';
 import '../widgets/section_header.dart';
 import '../widgets/tracking_row.dart';
 
@@ -42,11 +41,11 @@ class FocusScreen extends ConsumerStatefulWidget {
   ConsumerState<FocusScreen> createState() => _FocusScreenState();
 }
 
-/// Which status the filter chips show. `all` = active + paused + broken.
-enum _Filter { all, active, paused, broken }
+/// Which status the filter chips show (as on the web dashboard).
+enum _Filter { all, active, paused, broken, completed }
 
 class _FocusScreenState extends ConsumerState<FocusScreen> {
-  _Filter _filter = _Filter.active;
+  _Filter _filter = _Filter.all;
 
   @override
   Widget build(BuildContext context) {
@@ -56,14 +55,15 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
     final today = dateInZone(now);
     final monday = addDays(today, -dayOfWeek(today));
 
-    // "Current" = still in play: completed attempts live in History, and an
-    // attempt that was restarted is superseded by its replacement.
+    // Every commitment is in the focus ledger, as on the web dashboard. An
+    // attempt that was restarted locally is superseded by its replacement.
     final current = data.snapshot.commitments
-        .where(
-          (c) =>
-              c.status != CommitmentStatus.completed && c.restartedBy == null,
-        )
+        .where((c) => c.restartedBy == null)
         .toList();
+    final activeCount = current
+        .where((c) => c.status == CommitmentStatus.active)
+        .length;
+    final name = data.snapshot.displayName ?? identity?.name ?? '';
     final filtered = current
         .where((c) => _filter == _Filter.all || c.status.name == _filter.name)
         .toList();
@@ -73,9 +73,7 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
       return const AppScreen(
         header: AppHeader(),
         mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Center(child: CircularProgressIndicator(color: AppColors.inkPrimary)),
-        ],
+        children: [LockLoader()],
       );
     }
 
@@ -146,11 +144,17 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
                       children: [
                         Label('☼ Good $greeting,', size: 10),
                         Label(
-                          (identity?.name.isNotEmpty ?? false)
-                              ? identity!.name
-                              : 'Your next chapter',
+                          name.isNotEmpty ? name : 'Your next chapter',
                           size: 16,
                           bold: true,
+                        ),
+                        const SizedBox(height: 6),
+                        Label(
+                          activeCount == 0
+                              ? 'Your space is open.'
+                              : 'Keep your word · $activeCount active '
+                                    'commitment${activeCount == 1 ? '' : 's'}',
+                          size: 11,
                         ),
                       ],
                     ),
@@ -180,22 +184,22 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
                   commitment: row.commitment,
                   date: row.date,
                   catchUp: row.catchUp,
-                  onPressed: () => showLogModal(
-                    context,
-                    LogSelection(row.commitment, row.date),
-                  ),
+                  onPressed: () =>
+                      openCheckIn(context, ref, row.commitment, row.date),
                 )
             else
               const Label('No commitments due today.', size: 13, muted: true),
           ],
         ),
         // ---- Filter chips ---------------------------------------------------
-        Row(
-          spacing: 10,
-          children: [
-            for (final value in _Filter.values)
-              Expanded(
-                child: _FilterChip(
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          clipBehavior: Clip.none,
+          child: Row(
+            spacing: 10,
+            children: [
+              for (final value in _Filter.values)
+                _FilterChip(
                   label: value.name,
                   selected: _filter == value,
                   onTap: () {
@@ -203,15 +207,17 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
                     setState(() => _filter = value);
                   },
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
         // ---- Lists -----------------------------------------------------------
         if (filtered.isEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 48),
             child: Label(
-              'No ${_filter == _Filter.all ? 'current' : _filter.name} commitments found.',
+              _filter == _Filter.all
+                  ? 'Nothing in this view.'
+                  : 'No ${_filter.name} commitments. Try a different filter.',
               size: 13,
               align: TextAlign.center,
             ),
@@ -260,7 +266,7 @@ class _WeekStrip extends StatelessWidget {
               semanticLabel: 'History for $date',
               onTap: () => context.go('/history?date=$date'),
               child: SizedBox(
-                width: 23,
+                width: 26,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 2),
                   child: Column(
@@ -269,7 +275,7 @@ class _WeekStrip extends StatelessWidget {
                       Label(weekdayNames[i][0], size: 9, muted: true),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
+                          horizontal: 4,
                           vertical: 2,
                         ),
                         decoration: BoxDecoration(
@@ -355,7 +361,7 @@ class _FilterChip extends StatelessWidget {
     selected: selected,
     onTap: onTap,
     child: Container(
-      padding: const EdgeInsets.symmetric(vertical: 9),
+      padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 18),
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: selected ? AppColors.inkFocus : AppColors.surfaceHero,
